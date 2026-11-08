@@ -1,0 +1,33 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ms-eventos
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/db_eventos}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# URLs de los otros microservicios (llamadas /internal/**, sin gateway)
+ticketya:
+  services:
+    reservas-url: ${MS_RESERVAS_URL:http://localhost:8082}
+    ventas-url: ${MS_VENTAS_URL:http://localhost:8083}

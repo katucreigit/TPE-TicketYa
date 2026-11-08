@@ -1,0 +1,1786 @@
+openapi: 3.0.3
+info:
+  title: TicketYa API
+  version: 1.0.0-entrega1
+  description: |
+    Contrato REST de la **Entrega 1 (core)** de TicketYa: eventos y lugares, publicación, reservas temporales,
+    compra con emisión de QR, no doble venta, devoluciones, cancelación de eventos y búsqueda multicriterio.
+
+    **Entrada única:** todas las rutas públicas se acceden por el API Gateway (`http://localhost:8080/api`).
+    El gateway quita el prefijo `/api` y reenvía al microservicio correspondiente:
+
+    | Tag | Microservicio | Puerto local |
+    |---|---|---|
+    | Lugares, Eventos | ms-eventos | 8081 |
+    | Disponibilidad, Reservas | ms-reservas | 8082 |
+    | Compras, Entradas, Devoluciones | ms-ventas | 8083 |
+
+    Las rutas `/api/eventos/{eventoId}/disponibilidad` y `/api/eventos/{eventoId}/sectores/{sectorId}/asientos`
+    pertenecen a ms-reservas aunque comparten el prefijo `/api/eventos/`: en el gateway deben declararse antes
+    que `/api/eventos/**`.
+
+    **Identidad (Entrega 1, sin JWT):** el usuario se identifica con los headers `X-User-Id` y `X-User-Rol`
+    (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `ACCESO`). En la Entrega 2 se reemplazan por JWT.
+
+    **Idempotencia:** `POST /compras` exige el header `Idempotency-Key`.
+
+    **Endpoints internos (`/internal/**`):** solo se invocan entre microservicios y **no se enrutan por el gateway**.
+    Cada uno declara su propio servidor (puerto del microservicio dueño).
+
+    **Pasarela de pagos simulada:** se decide por `medioPago.token`: `tok_ok` aprueba, `tok_rechazado` rechaza,
+    `tok_timeout` simula una falla de la pasarela.
+
+    **Error estándar:** todos los servicios devuelven el mismo objeto `Error`.
+  contact:
+    name: Grupo TicketYa - Arquitectura Web (TUDAI)
+servers:
+  - url: http://localhost:8080/api
+    description: API Gateway (entrada única)
+tags:
+  - name: Lugares
+    description: Estadios, teatros y salas con sus sectores (ms-eventos)
+  - name: Eventos
+    description: Gestión, publicación y búsqueda de eventos (ms-eventos)
+  - name: Disponibilidad
+    description: Lugares libres por sector y mapa de asientos (ms-reservas)
+  - name: Reservas
+    description: Reserva temporal de lugares, 10 minutos (ms-reservas)
+  - name: Compras
+    description: Pago de la reserva y emisión de entradas con QR (ms-ventas)
+  - name: Entradas
+    description: Entradas emitidas del cliente (ms-ventas)
+  - name: Devoluciones
+    description: Solicitud, aprobación y rechazo de devoluciones (ms-ventas)
+  - name: Internos
+    description: Endpoints entre microservicios. No pasan por el gateway.
+
+paths:
+  # ------------------------------------------------------------------ LUGARES
+  /lugares:
+    post:
+      tags: [Lugares]
+      operationId: crearLugar
+      summary: Crear un lugar con sus sectores
+      description: |
+        Registra un lugar (estadio, teatro, sala). Un sector **NUMERADO** requiere `filas` y `asientosPorFila`;
+        uno **NO_NUMERADO** requiere `capacidad`. Roles: `ORGANIZADOR`, `ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LugarRequest'
+            example:
+              nombre: Estadio Ciudad de Tandil
+              direccion: Av. Don Bosco 1200
+              ciudad: Tandil
+              latitud: -37.3217
+              longitud: -59.1332
+              sectores:
+                - { nombre: Platea Alta, tipo: NUMERADO, filas: 20, asientosPorFila: 30 }
+                - { nombre: Campo, tipo: NO_NUMERADO, capacidad: 5000 }
+      responses:
+        '201':
+          description: Lugar creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lugar'
+              example:
+                id: 3
+                nombre: Estadio Ciudad de Tandil
+                direccion: Av. Don Bosco 1200
+                ciudad: Tandil
+                latitud: -37.3217
+                longitud: -59.1332
+                sectores:
+                  - { id: 11, nombre: Platea Alta, tipo: NUMERADO, filas: 20, asientosPorFila: 30 }
+                  - { id: 12, nombre: Campo, tipo: NO_NUMERADO, capacidad: 5000 }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    get:
+      tags: [Lugares]
+      operationId: listarLugares
+      summary: Listar lugares
+      description: Lista paginada de lugares, filtrable por ciudad. Público.
+      parameters:
+        - name: ciudad
+          in: query
+          description: Ciudad del lugar
+          schema: { type: string }
+          example: Tandil
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de lugares
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageLugar'
+              example:
+                content:
+                  - { id: 3, nombre: Estadio Ciudad de Tandil, direccion: Av. Don Bosco 1200, ciudad: Tandil, latitud: -37.3217, longitud: -59.1332, sectores: [] }
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+
+  /lugares/{id}:
+    get:
+      tags: [Lugares]
+      operationId: obtenerLugar
+      summary: Detalle de un lugar con sus sectores
+      description: Público.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+      responses:
+        '200':
+          description: Lugar encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Lugar'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /lugares/{id}/sectores:
+    post:
+      tags: [Lugares]
+      operationId: agregarSector
+      summary: Agregar un sector a un lugar
+      description: Roles `ORGANIZADOR`, `ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SectorRequest'
+            example: { nombre: Platea Baja, tipo: NUMERADO, filas: 10, asientosPorFila: 25 }
+      responses:
+        '201':
+          description: Sector creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sector'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ------------------------------------------------------------------ EVENTOS
+  /eventos:
+    post:
+      tags: [Eventos]
+      operationId: crearEvento
+      summary: Crear un evento en borrador
+      description: |
+        El evento queda en estado `BORRADOR` y el organizador es el usuario de `X-User-Id`.
+        La fecha debe ser futura. Rol: `ORGANIZADOR`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventoRequest'
+            example:
+              nombre: Festival de Verano 2027
+              descripcion: Dos noches de rock nacional
+              tipo: RECITAL
+              lugarId: 3
+              fechaHora: '2027-01-15T21:00:00'
+              participantes:
+                - { nombre: Los Andariegos, tipo: ARTISTA }
+              maxEntradasPorCliente: 4
+              altaDemanda: true
+      responses:
+        '201':
+          description: Evento creado en borrador
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+              example:
+                id: 42
+                nombre: Festival de Verano 2027
+                descripcion: Dos noches de rock nacional
+                tipo: RECITAL
+                estado: BORRADOR
+                organizadorId: 7
+                lugarId: 3
+                fechaHora: '2027-01-15T21:00:00'
+                participantes:
+                  - { id: 5, nombre: Los Andariegos, tipo: ARTISTA }
+                maxEntradasPorCliente: 4
+                altaDemanda: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: El lugar indicado no existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 404, error: Not Found, code: LUGAR_NO_ENCONTRADO, message: No existe el lugar 99, path: /eventos }
+    get:
+      tags: [Eventos]
+      operationId: buscarEventos
+      summary: Buscar eventos por múltiples criterios
+      description: |
+        Todos los filtros son opcionales y se combinan con AND. Solo devuelve eventos `PUBLICADO` y `AGOTADO`.
+        `orden=precio` usa el precio mínimo entre los sectores del evento.
+        `orden=relevancia` es simplificada: coincidencia de `q` y luego cercanía de la fecha.
+        Si `fechaDesde` es posterior a `fechaHasta` responde `400`. Público.
+      parameters:
+        - name: tipo
+          in: query
+          schema: { $ref: '#/components/schemas/TipoEvento' }
+          example: RECITAL
+        - name: organizadorId
+          in: query
+          description: Id del organizador
+          schema: { type: integer, format: int64 }
+          example: 7
+        - name: participante
+          in: query
+          description: Nombre parcial de artista, equipo o disertante (sin distinguir mayúsculas)
+          schema: { type: string }
+          example: andariegos
+        - name: ciudad
+          in: query
+          schema: { type: string }
+          example: Tandil
+        - name: fechaDesde
+          in: query
+          schema: { type: string, format: date }
+          example: '2026-12-01'
+        - name: fechaHasta
+          in: query
+          schema: { type: string, format: date }
+          example: '2027-03-31'
+        - name: q
+          in: query
+          description: Texto libre en nombre, descripción y participantes
+          schema: { type: string }
+        - name: orden
+          in: query
+          schema: { type: string, enum: [fecha, precio, relevancia], default: fecha }
+        - name: dir
+          in: query
+          schema: { type: string, enum: [asc, desc], default: asc }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de eventos (puede estar vacía)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEventoResumen'
+              example:
+                content:
+                  - id: 42
+                    nombre: Festival de Verano 2027
+                    tipo: RECITAL
+                    estado: PUBLICADO
+                    ciudad: Tandil
+                    fechaHora: '2027-01-15T21:00:00'
+                    precioDesde: 28000.00
+                    participantes: [Los Andariegos]
+                page: 0
+                size: 20
+                totalElements: 1
+                totalPages: 1
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /eventos/{id}:
+    get:
+      tags: [Eventos]
+      operationId: obtenerEvento
+      summary: Detalle de un evento
+      description: |
+        Público. Un evento en `BORRADOR` solo lo ve su organizador o un administrador
+        (para el resto responde `404`).
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+      responses:
+        '200':
+          description: Evento encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Eventos]
+      operationId: actualizarEvento
+      summary: Editar un evento en borrador
+      description: Solo el organizador dueño y solo mientras el evento esté en `BORRADOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventoRequest'
+      responses:
+        '200':
+          description: Evento actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El evento ya no está en BORRADOR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: EVENTO_NO_EDITABLE, message: Solo se pueden editar eventos en BORRADOR, path: /eventos/42 }
+
+  /eventos/{id}/precios:
+    put:
+      tags: [Eventos]
+      operationId: configurarPrecios
+      summary: Configurar los precios por sector del evento
+      description: |
+        Reemplaza la lista de `{sectorId, precio}` del evento. Los sectores deben pertenecer al lugar del evento
+        y el precio debe ser mayor a 0. Solo el organizador dueño y solo en `BORRADOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PrecioSectorRequest'
+            example:
+              - { sectorId: 11, precio: 45000.00 }
+              - { sectorId: 12, precio: 28000.00 }
+      responses:
+        '200':
+          description: Precios guardados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SectorEvento'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El evento no está en BORRADOR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: EVENTO_NO_EDITABLE, message: Solo se pueden editar eventos en BORRADOR, path: /eventos/42/precios }
+
+  /eventos/{id}/publicar:
+    post:
+      tags: [Eventos]
+      operationId: publicarEvento
+      summary: Publicar un evento
+      description: |
+        Requiere al menos un sector con precio. Pasa a `PUBLICADO` e inicializa el inventario en ms-reservas.
+        Si ms-reservas no responde, el evento sigue en `BORRADOR` y se puede reintentar. Solo el organizador dueño.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Evento publicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+              example: { id: 42, estado: PUBLICADO }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: El evento ya fue publicado o no está en BORRADOR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: ESTADO_INVALIDO, message: El evento ya esta publicado, path: /eventos/42/publicar }
+        '422':
+          description: El evento no tiene sectores con precio
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 422, error: Unprocessable Entity, code: SIN_PRECIOS, message: Debe configurar al menos un sector con precio, path: /eventos/42/publicar }
+        '502':
+          description: ms-reservas no respondió; el evento sigue en BORRADOR
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 502, error: Bad Gateway, code: INVENTARIO_NO_DISPONIBLE, message: No se pudo inicializar el inventario. Reintente., path: /eventos/42/publicar }
+
+  /eventos/{id}/suspender:
+    post:
+      tags: [Eventos]
+      operationId: suspenderEvento
+      summary: Suspender un evento
+      description: |
+        Rol `ADMIN`. `PUBLICADO` o `AGOTADO` pasa a `SUSPENDIDO`: deja de aparecer en búsquedas y no admite nuevas reservas.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Evento suspendido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+              example: { id: 42, estado: SUSPENDIDO }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+
+  /eventos/{id}/reanudar:
+    post:
+      tags: [Eventos]
+      operationId: reanudarEvento
+      summary: Reanudar un evento suspendido
+      description: Rol `ADMIN`. `SUSPENDIDO` vuelve a `PUBLICADO` y se reabre su inventario.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Evento reanudado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+              example: { id: 42, estado: PUBLICADO }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+
+  /eventos/{id}/cancelar:
+    post:
+      tags: [Eventos]
+      operationId: cancelarEvento
+      summary: Cancelar un evento
+      description: |
+        Rol `ADMIN`. Pasa a `CANCELADO`, cierra el inventario (libera reservas pendientes) y dispara el reintegro
+        de todas las entradas vendidas. No se puede cancelar un evento `FINALIZADO` o ya `CANCELADO`.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MotivoRequest'
+            example: { motivo: Falla de la productora }
+      responses:
+        '200':
+          description: Evento cancelado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Evento'
+              example: { id: 42, estado: CANCELADO, motivoCancelacion: Falla de la productora }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+  /eventos/{id}/sectores:
+    get:
+      tags: [Eventos]
+      operationId: sectoresDelEvento
+      summary: Sectores del evento con sus precios
+      description: Público. Lo usa también ms-ventas para obtener precios y fecha al comprar.
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+      responses:
+        '200':
+          description: Sectores con precio
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SectorEvento'
+              example:
+                - { sectorId: 11, nombre: Platea Alta, tipo: NUMERADO, precio: 45000.00, filas: 20, asientosPorFila: 30 }
+                - { sectorId: 12, nombre: Campo, tipo: NO_NUMERADO, precio: 28000.00, capacidad: 5000 }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ------------------------------------------------------------------ DISPONIBILIDAD
+  /eventos/{eventoId}/disponibilidad:
+    get:
+      tags: [Disponibilidad]
+      operationId: disponibilidadEvento
+      summary: Lugares disponibles por sector
+      description: Público. Este dato **no se cachea** (cambia en cada reserva).
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+      responses:
+        '200':
+          description: Disponibilidad por sector
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Disponibilidad'
+              example:
+                eventoId: 42
+                sectores:
+                  - { sectorId: 11, tipo: NUMERADO, capacidad: 600, disponibles: 574 }
+                  - { sectorId: 12, tipo: NO_NUMERADO, capacidad: 5000, disponibles: 4210 }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /eventos/{eventoId}/sectores/{sectorId}/asientos:
+    get:
+      tags: [Disponibilidad]
+      operationId: asientosDelSector
+      summary: Mapa de asientos de un sector numerado
+      description: Público. Para sectores no numerados responde `400`.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/SectorIdPath'
+        - name: estado
+          in: query
+          description: Filtra por estado del asiento
+          schema: { type: string, enum: [LIBRE, RESERVADO, VENDIDO] }
+      responses:
+        '200':
+          description: Asientos del sector
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AsientoEstado'
+              example:
+                - { fila: 3, numero: 10, estado: LIBRE }
+                - { fila: 3, numero: 11, estado: RESERVADO }
+                - { fila: 3, numero: 12, estado: VENDIDO }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ------------------------------------------------------------------ RESERVAS
+  /reservas:
+    post:
+      tags: [Reservas]
+      operationId: crearReserva
+      summary: Reservar lugares temporalmente (10 minutos)
+      description: |
+        Rol `CLIENTE`. En un sector **numerado** se envían `asientos`; en uno **no numerado**, `cantidad`.
+        La operación es **todo o nada**: si algún lugar ya no está libre responde `409` y no queda ninguno reservado.
+        Mecanismo anti doble venta: `UPDATE` condicional por estado sobre la base de ms-reservas.
+        También valida el límite de entradas por cliente para el evento (`422`).
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservaRequest'
+            examples:
+              sectorNumerado:
+                summary: Sector numerado (asientos concretos)
+                value:
+                  eventoId: 42
+                  sectorId: 11
+                  asientos:
+                    - { fila: 3, numero: 10 }
+                    - { fila: 3, numero: 11 }
+              sectorNoNumerado:
+                summary: Sector no numerado (cantidad)
+                value: { eventoId: 42, sectorId: 12, cantidad: 3 }
+      responses:
+        '201':
+          description: Reserva creada; vence en `expiraEn`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+              example:
+                reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
+                eventoId: 42
+                sectorId: 11
+                clienteId: '101'
+                estado: PENDIENTE
+                cantidad: 2
+                items:
+                  - { fila: 3, numero: 10 }
+                  - { fila: 3, numero: 11 }
+                expiraEn: '2026-11-07T17:12:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Asiento ya reservado o vendido, cupo insuficiente o evento no publicado. No queda ningún lugar reservado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                asientoOcupado:
+                  summary: Asiento ocupado
+                  value: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: ASIENTO_NO_DISPONIBLE, message: Los asientos F3-N10 ya no estan disponibles, path: /reservas, details: ['F3-N10'] }
+                cupoInsuficiente:
+                  summary: Sin cupo en la zona
+                  value: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: CUPO_INSUFICIENTE, message: No hay cupo suficiente en el sector, path: /reservas }
+                eventoNoPublicado:
+                  summary: Evento no publicado
+                  value: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: EVENTO_NO_DISPONIBLE, message: El evento no admite reservas, path: /reservas }
+        '422':
+          description: Se supera el máximo de entradas por cliente para el evento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 422, error: Unprocessable Entity, code: LIMITE_POR_CLIENTE, message: Maximo 4 entradas por cliente para este evento (ya tiene 3), path: /reservas }
+
+  /reservas/{id}:
+    get:
+      tags: [Reservas]
+      operationId: obtenerReserva
+      summary: Consultar una reserva
+      description: Solo el cliente dueño. Lo usa también ms-ventas reenviando `X-User-Id`.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Reserva encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reserva'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Reservas]
+      operationId: cancelarReserva
+      summary: Liberar una reserva pendiente
+      description: Solo el cliente dueño. Los lugares vuelven a `LIBRE`. Una reserva `CONFIRMADA` no se puede cancelar.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '204':
+          description: Reserva liberada
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La reserva ya está confirmada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: RESERVA_CONFIRMADA, message: Una reserva confirmada no se puede cancelar, path: /reservas/5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11 }
+
+  # ------------------------------------------------------------------ COMPRAS
+  /compras:
+    post:
+      tags: [Compras]
+      operationId: crearCompra
+      summary: Pagar una reserva y emitir las entradas
+      description: |
+        Rol `CLIENTE`. Orquesta: verifica la reserva, cobra en la pasarela (mock), confirma la reserva y emite
+        una entrada con `codigoQr` único por lugar. Si el pago es rechazado libera los lugares (`402`); si la reserva
+        venció no se cobra (`410`); si venció durante el cobro se reembolsa el pago (`410`).
+
+        **Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original
+        (`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompraRequest'
+            examples:
+              pagoAprobado:
+                summary: Pago aprobado (token tok_ok)
+                value:
+                  reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
+                  medioPago: { tipo: TARJETA_CREDITO, token: tok_ok, ultimos4: '4242' }
+              pagoRechazado:
+                summary: Pago rechazado (token tok_rechazado)
+                value:
+                  reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
+                  medioPago: { tipo: TARJETA_CREDITO, token: tok_rechazado, ultimos4: '0002' }
+              fallaPasarela:
+                summary: Falla de la pasarela (token tok_timeout)
+                value:
+                  reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
+                  medioPago: { tipo: TARJETA_DEBITO, token: tok_timeout, ultimos4: '1111' }
+      responses:
+        '200':
+          description: Repetición de una solicitud ya procesada (misma `Idempotency-Key`); devuelve el resultado original sin cobrar de nuevo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Compra'
+        '201':
+          description: Pago aprobado y entradas emitidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Compra'
+              example:
+                compraId: c0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9aa
+                estado: APROBADA
+                total: 90000.00
+                medioPago: { tipo: TARJETA_CREDITO, ultimos4: '4242' }
+                entradas:
+                  - entradaId: e1b2c3d4-0001-4aaa-8bbb-111122223333
+                    eventoId: 42
+                    sectorId: 11
+                    fila: 3
+                    numero: 10
+                    precioUnitario: 45000.00
+                    codigoQr: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64
+                    estado: EMITIDA
+                  - entradaId: e1b2c3d4-0002-4aaa-8bbb-111122223333
+                    eventoId: 42
+                    sectorId: 11
+                    fila: 3
+                    numero: 11
+                    precioUnitario: 45000.00
+                    codigoQr: b8c1d0e9-5a2f-4c37-9e10-7d4a6b3c2f81
+                    estado: EMITIDA
+        '400':
+          description: Falta el header `Idempotency-Key` o el cuerpo es inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 400, error: Bad Request, code: IDEMPOTENCY_KEY_REQUERIDA, message: El header Idempotency-Key es obligatorio, path: /compras }
+        '402':
+          description: La pasarela rechazó el pago. Los lugares fueron liberados y la compra queda `RECHAZADA`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 402, error: Payment Required, code: PAGO_RECHAZADO, message: La pasarela rechazo el pago. Los lugares fueron liberados., path: /compras }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: La reserva venció. No se cobró (o se reembolsó el pago si venció durante el cobro).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 410, error: Gone, code: RESERVA_VENCIDA, message: La reserva vencio. No se realizo ningun cobro., path: /compras }
+        '422':
+          description: La misma `Idempotency-Key` fue usada con una solicitud distinta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 422, error: Unprocessable Entity, code: IDEMPOTENCY_KEY_REUTILIZADA, message: La clave ya fue usada con una solicitud distinta, path: /compras }
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '504':
+          description: La pasarela de pagos no respondió a tiempo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 504, error: Gateway Timeout, code: PASARELA_TIMEOUT, message: La pasarela de pagos no respondio. Reintente con la misma Idempotency-Key., path: /compras }
+    get:
+      tags: [Compras]
+      operationId: listarMisCompras
+      summary: Listar mis compras
+      description: Rol `CLIENTE`. Devuelve solo las compras del usuario de `X-User-Id`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de compras
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageCompra'
+
+  /compras/{id}:
+    get:
+      tags: [Compras]
+      operationId: obtenerCompra
+      summary: Detalle de una compra
+      description: El cliente dueño o un `ADMIN`. Incluye el medio de pago y las entradas.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Compra encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Compra'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ------------------------------------------------------------------ ENTRADAS
+  /entradas:
+    get:
+      tags: [Entradas]
+      operationId: listarMisEntradas
+      summary: Listar mis entradas
+      description: Rol `CLIENTE`. Devuelve solo las entradas del usuario de `X-User-Id`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - name: estado
+          in: query
+          schema: { $ref: '#/components/schemas/EstadoEntrada' }
+        - name: eventoId
+          in: query
+          schema: { type: integer, format: int64 }
+          example: 42
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de entradas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageEntrada'
+
+  /entradas/{id}:
+    get:
+      tags: [Entradas]
+      operationId: obtenerEntrada
+      summary: Detalle de una entrada con su QR
+      description: El cliente dueño o un `ADMIN`.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Entrada encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entrada'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ------------------------------------------------------------------ DEVOLUCIONES
+  /devoluciones:
+    post:
+      tags: [Devoluciones]
+      operationId: solicitarDevolucion
+      summary: Solicitar la devolución de una entrada
+      description: |
+        Rol `CLIENTE`. Permitida hasta 72 horas antes del evento. La entrada pasa a `DEVOLUCION_SOLICITADA` y
+        la devolución queda `SOLICITADA` hasta que un administrador la resuelva.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DevolucionRequest'
+            example: { entradaId: e1b2c3d4-0001-4aaa-8bbb-111122223333, motivo: No puedo asistir }
+      responses:
+        '201':
+          description: Devolución solicitada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Devolucion'
+              example:
+                devolucionId: d4e5f6a7-0001-4bbb-9ccc-444455556666
+                entradaId: e1b2c3d4-0001-4aaa-8bbb-111122223333
+                estado: SOLICITADA
+                monto: 45000.00
+                motivo: No puedo asistir
+                solicitadaEn: '2026-11-07T17:30:00'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La entrada está usada, ya devuelta o con una devolución en curso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: ENTRADA_NO_DEVOLVIBLE, message: La entrada ya tiene una devolucion en curso, path: /devoluciones }
+        '422':
+          description: Faltan menos de 72 horas para el evento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-11-07T17:02:11', status: 422, error: Unprocessable Entity, code: FUERA_DE_PLAZO, message: La devolucion solo se puede solicitar hasta 72 horas antes del evento, path: /devoluciones }
+    get:
+      tags: [Devoluciones]
+      operationId: listarDevoluciones
+      summary: Listar devoluciones
+      description: Rol `ADMIN`. Con `estado=SOLICITADA` muestra las pendientes de resolver.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - name: estado
+          in: query
+          schema: { $ref: '#/components/schemas/EstadoDevolucion' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de devoluciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageDevolucion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /devoluciones/{id}:
+    get:
+      tags: [Devoluciones]
+      operationId: obtenerDevolucion
+      summary: Detalle de una devolución
+      description: Un `ADMIN` o el cliente dueño.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Devolución encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Devolucion'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /devoluciones/{id}/aprobar:
+    post:
+      tags: [Devoluciones]
+      operationId: aprobarDevolucion
+      summary: Aprobar una devolución
+      description: |
+        Rol `ADMIN`. Libera el lugar en ms-reservas y solicita el reintegro a la pasarela. Queda `REINTEGRADA`.
+        Si la pasarela falla responde `502` y la devolución sigue `SOLICITADA` para poder reintentar.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Devolución aprobada y reintegro completado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Devolucion'
+              example:
+                devolucionId: d4e5f6a7-0001-4bbb-9ccc-444455556666
+                estado: REINTEGRADA
+                monto: 45000.00
+                reintegro: { monto: 45000.00, estado: COMPLETADO }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+  /devoluciones/{id}/rechazar:
+    post:
+      tags: [Devoluciones]
+      operationId: rechazarDevolucion
+      summary: Rechazar una devolución
+      description: Rol `ADMIN`. Requiere motivo. La devolución queda `RECHAZADA` y la entrada vuelve a `EMITIDA`.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MotivoRequest'
+            example: { motivo: La entrada ya fue transferida }
+      responses:
+        '200':
+          description: Devolución rechazada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Devolucion'
+              example:
+                devolucionId: d4e5f6a7-0001-4bbb-9ccc-444455556666
+                estado: RECHAZADA
+                motivoRechazo: La entrada ya fue transferida
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+
+  # ------------------------------------------------------------------ INTERNOS
+  /internal/eventos/{id}/disponibilidad:
+    servers:
+      - url: http://localhost:8081
+        description: ms-eventos (directo, sin gateway)
+    put:
+      tags: [Internos]
+      operationId: internoActualizarDisponibilidad
+      summary: "[ms-reservas → ms-eventos] Marcar el evento como agotado o disponible"
+      description: '`agotado=true` pasa el evento a `AGOTADO`; `agotado=false` lo devuelve a `PUBLICADO`.'
+      parameters:
+        - $ref: '#/components/parameters/IdLong'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agotado]
+              properties:
+                agotado: { type: boolean, example: true }
+      responses:
+        '200':
+          description: Estado actualizado
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /internal/inventarios:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoCrearInventario
+      summary: "[ms-eventos → ms-reservas] Crear el inventario al publicar"
+      description: |
+        Genera los asientos (sectores numerados) y los cupos (no numerados) del evento.
+        Idempotente: si el inventario ya existe responde `409` sin modificarlo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventarioRequest'
+            example:
+              eventoId: 42
+              maxPorCliente: 4
+              sectores:
+                - { sectorId: 11, tipo: NUMERADO, filas: 20, asientosPorFila: 30 }
+                - { sectorId: 12, tipo: NO_NUMERADO, capacidad: 5000 }
+      responses:
+        '201':
+          description: Inventario creado
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: El inventario del evento ya existe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /internal/eventos/{eventoId}/cerrar:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoCerrarEvento
+      summary: "[ms-eventos → ms-reservas] Cerrar el evento"
+      description: Libera las reservas pendientes y rechaza nuevas reservas (al suspender o cancelar).
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+      responses:
+        '200':
+          description: Evento cerrado
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /internal/eventos/{eventoId}/abrir:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoAbrirEvento
+      summary: "[ms-eventos → ms-reservas] Reabrir el evento"
+      description: Vuelve a admitir reservas (al reanudar un evento suspendido).
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+      responses:
+        '200':
+          description: Evento reabierto
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /internal/reservas/{id}/confirmar:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoConfirmarReserva
+      summary: "[ms-ventas → ms-reservas] Confirmar la reserva tras el pago"
+      description: |
+        `PENDIENTE` y vigente pasa a `CONFIRMADA` y sus lugares a `VENDIDO`
+        (`UPDATE ... WHERE estado='PENDIENTE' AND expira_en > now()`).
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '200':
+          description: Reserva confirmada
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: La reserva no está pendiente (ya liberada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: La reserva venció
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /internal/reservas/{id}/liberar:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoLiberarReserva
+      summary: "[ms-ventas → ms-reservas] Liberar la reserva (pago rechazado)"
+      description: La reserva pasa a `LIBERADA` y sus lugares a `LIBRE`. Idempotente.
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      responses:
+        '200':
+          description: Reserva liberada
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /internal/reservas/{id}/devolver:
+    servers:
+      - url: http://localhost:8082
+        description: ms-reservas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoDevolverLugares
+      summary: "[ms-ventas → ms-reservas] Liberar lugares por una devolución aprobada"
+      parameters:
+        - $ref: '#/components/parameters/IdUuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  description: Asientos a liberar (sectores numerados)
+                  items:
+                    $ref: '#/components/schemas/AsientoRef'
+                cantidad:
+                  type: integer
+                  description: Cupos a liberar (sectores no numerados)
+                  example: 1
+            example:
+              items:
+                - { fila: 3, numero: 10 }
+      responses:
+        '200':
+          description: Lugares liberados
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ConflictEstado'
+
+  /internal/eventos/{eventoId}/cancelacion:
+    servers:
+      - url: http://localhost:8083
+        description: ms-ventas (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoCancelacionEvento
+      summary: "[ms-eventos → ms-ventas] Reintegrar las entradas de un evento cancelado"
+      description: |
+        Pasa las entradas `EMITIDA` a `REINTEGRO_PENDIENTE` y solicita el reintegro a la pasarela por cada una.
+        Idempotente: volver a llamarlo no reintegra dos veces la misma entrada.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+      responses:
+        '200':
+          description: Cancelación procesada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  eventoId: { type: integer, format: int64, example: 42 }
+                  entradasAfectadas: { type: integer, example: 318 }
+                  reintegrosCompletados: { type: integer, example: 318 }
+                  reintegrosPendientes: { type: integer, example: 0 }
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ====================================================================== COMPONENTES
+components:
+  parameters:
+    XUserId:
+      name: X-User-Id
+      in: header
+      required: true
+      description: Id del usuario (Entrega 1, sin JWT)
+      schema: { type: string }
+      example: '101'
+    XUserRol:
+      name: X-User-Rol
+      in: header
+      required: true
+      description: Rol del usuario (Entrega 1, sin JWT)
+      schema:
+        type: string
+        enum: [CLIENTE, ORGANIZADOR, ADMIN, ACCESO]
+      example: CLIENTE
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Clave única por intento de compra (por ejemplo un UUID). Un reintento usa la misma clave.
+      schema: { type: string }
+      example: 7d6f2a10-8c3b-4e55-b0f1-9a1c2d3e4f50
+    IdLong:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+      example: 42
+    IdUuid:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+      example: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
+    EventoIdPath:
+      name: eventoId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+      example: 42
+    SectorIdPath:
+      name: sectorId
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+      example: 11
+    Page:
+      name: page
+      in: query
+      description: Número de página (desde 0)
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      description: Tamaño de página
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    BadRequest:
+      description: Solicitud inválida (validación de campos o parámetros)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            timestamp: '2026-11-07T17:02:11'
+            status: 400
+            error: Bad Request
+            code: VALIDACION
+            message: Datos invalidos
+            path: /eventos
+            details: ['fechaHora debe ser futura']
+    Forbidden:
+      description: El rol o el usuario no tiene permiso sobre el recurso
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { timestamp: '2026-11-07T17:02:11', status: 403, error: Forbidden, code: ACCESO_DENEGADO, message: No tiene permiso para esta operacion, path: /eventos/42/publicar }
+    NotFound:
+      description: El recurso no existe
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { timestamp: '2026-11-07T17:02:11', status: 404, error: Not Found, code: NO_ENCONTRADO, message: No existe el recurso solicitado, path: /eventos/999 }
+    ConflictEstado:
+      description: La operación no es válida para el estado actual del recurso
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: ESTADO_INVALIDO, message: La operacion no es valida para el estado actual, path: /eventos/42/cancelar }
+    BadGateway:
+      description: Falló un servicio externo (otro microservicio o la pasarela de pagos)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { timestamp: '2026-11-07T17:02:11', status: 502, error: Bad Gateway, code: SERVICIO_NO_DISPONIBLE, message: No se pudo completar la operacion con un servicio externo. Reintente., path: /eventos/42/cancelar }
+
+  schemas:
+    Error:
+      type: object
+      required: [timestamp, status, error, code, message, path]
+      properties:
+        timestamp: { type: string, format: date-time, example: '2026-11-07T17:02:11' }
+        status: { type: integer, example: 409 }
+        error: { type: string, example: Conflict }
+        code: { type: string, description: Código de error de negocio, example: ASIENTO_NO_DISPONIBLE }
+        message: { type: string, example: Los asientos F3-N10 ya no estan disponibles }
+        path: { type: string, example: /reservas }
+        details:
+          type: array
+          items: { type: string }
+          example: ['F3-N10']
+
+    # ---- enums
+    TipoEvento:
+      type: string
+      enum: [RECITAL, TEATRO, DEPORTE, CONFERENCIA, OTRO]
+    EstadoEvento:
+      type: string
+      enum: [BORRADOR, PUBLICADO, AGOTADO, SUSPENDIDO, CANCELADO, FINALIZADO]
+    TipoSector:
+      type: string
+      enum: [NUMERADO, NO_NUMERADO]
+    TipoParticipante:
+      type: string
+      enum: [ARTISTA, EQUIPO, DISERTANTE]
+    EstadoAsiento:
+      type: string
+      enum: [LIBRE, RESERVADO, VENDIDO]
+    EstadoReserva:
+      type: string
+      enum: [PENDIENTE, CONFIRMADA, LIBERADA, VENCIDA]
+    EstadoCompra:
+      type: string
+      enum: [PENDIENTE, APROBADA, RECHAZADA, FALLIDA]
+    EstadoEntrada:
+      type: string
+      enum: [EMITIDA, DEVOLUCION_SOLICITADA, REINTEGRO_PENDIENTE, REINTEGRADA, USADA]
+    EstadoDevolucion:
+      type: string
+      enum: [SOLICITADA, APROBADA, RECHAZADA, REINTEGRADA]
+    TipoMedioPago:
+      type: string
+      enum: [TARJETA_CREDITO, TARJETA_DEBITO]
+
+    # ---- lugares
+    SectorRequest:
+      type: object
+      required: [nombre, tipo]
+      description: NUMERADO requiere filas y asientosPorFila; NO_NUMERADO requiere capacidad.
+      properties:
+        nombre: { type: string, example: Platea Alta }
+        tipo: { $ref: '#/components/schemas/TipoSector' }
+        filas: { type: integer, minimum: 1, example: 20 }
+        asientosPorFila: { type: integer, minimum: 1, example: 30 }
+        capacidad: { type: integer, minimum: 1, example: 5000 }
+    Sector:
+      allOf:
+        - $ref: '#/components/schemas/SectorRequest'
+        - type: object
+          properties:
+            id: { type: integer, format: int64, example: 11 }
+    LugarRequest:
+      type: object
+      required: [nombre, direccion, ciudad, latitud, longitud]
+      properties:
+        nombre: { type: string, example: Estadio Ciudad de Tandil }
+        direccion: { type: string, example: Av. Don Bosco 1200 }
+        ciudad: { type: string, example: Tandil }
+        latitud: { type: number, format: double, minimum: -90, maximum: 90, example: -37.3217 }
+        longitud: { type: number, format: double, minimum: -180, maximum: 180, example: -59.1332 }
+        sectores:
+          type: array
+          items: { $ref: '#/components/schemas/SectorRequest' }
+    Lugar:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 3 }
+        nombre: { type: string }
+        direccion: { type: string }
+        ciudad: { type: string }
+        latitud: { type: number, format: double }
+        longitud: { type: number, format: double }
+        sectores:
+          type: array
+          items: { $ref: '#/components/schemas/Sector' }
+    PageLugar:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Lugar' }
+
+    # ---- eventos
+    ParticipanteRequest:
+      type: object
+      required: [nombre, tipo]
+      properties:
+        nombre: { type: string, example: Los Andariegos }
+        tipo: { $ref: '#/components/schemas/TipoParticipante' }
+    Participante:
+      allOf:
+        - $ref: '#/components/schemas/ParticipanteRequest'
+        - type: object
+          properties:
+            id: { type: integer, format: int64, example: 5 }
+    EventoRequest:
+      type: object
+      required: [nombre, tipo, lugarId, fechaHora]
+      properties:
+        nombre: { type: string, example: Festival de Verano 2027 }
+        descripcion: { type: string, example: Dos noches de rock nacional }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        lugarId: { type: integer, format: int64, example: 3 }
+        fechaHora: { type: string, format: date-time, description: Debe ser futura, example: '2027-01-15T21:00:00' }
+        participantes:
+          type: array
+          items: { $ref: '#/components/schemas/ParticipanteRequest' }
+        maxEntradasPorCliente: { type: integer, minimum: 1, default: 4, example: 4 }
+        altaDemanda: { type: boolean, default: false, description: Habilita fila virtual (Entrega 2), example: true }
+    Evento:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        nombre: { type: string }
+        descripcion: { type: string }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        estado: { $ref: '#/components/schemas/EstadoEvento' }
+        organizadorId: { type: integer, format: int64, example: 7 }
+        lugarId: { type: integer, format: int64, example: 3 }
+        fechaHora: { type: string, format: date-time }
+        participantes:
+          type: array
+          items: { $ref: '#/components/schemas/Participante' }
+        maxEntradasPorCliente: { type: integer }
+        altaDemanda: { type: boolean }
+        motivoCancelacion: { type: string, nullable: true }
+    EventoResumen:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        nombre: { type: string }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        estado: { $ref: '#/components/schemas/EstadoEvento' }
+        ciudad: { type: string, example: Tandil }
+        fechaHora: { type: string, format: date-time }
+        precioDesde: { type: number, format: double, description: Precio mínimo entre sus sectores, example: 28000.00 }
+        participantes:
+          type: array
+          items: { type: string }
+    PageEventoResumen:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/EventoResumen' }
+    PrecioSectorRequest:
+      type: object
+      required: [sectorId, precio]
+      properties:
+        sectorId: { type: integer, format: int64, example: 11 }
+        precio: { type: number, format: double, exclusiveMinimum: true, minimum: 0, example: 45000.00 }
+    SectorEvento:
+      type: object
+      properties:
+        sectorId: { type: integer, format: int64, example: 11 }
+        nombre: { type: string, example: Platea Alta }
+        tipo: { $ref: '#/components/schemas/TipoSector' }
+        precio: { type: number, format: double, example: 45000.00 }
+        filas: { type: integer, nullable: true }
+        asientosPorFila: { type: integer, nullable: true }
+        capacidad: { type: integer, nullable: true }
+    MotivoRequest:
+      type: object
+      required: [motivo]
+      properties:
+        motivo: { type: string, example: Falla de la productora }
+
+    # ---- disponibilidad y reservas
+    Disponibilidad:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        sectores:
+          type: array
+          items:
+            type: object
+            properties:
+              sectorId: { type: integer, format: int64, example: 11 }
+              tipo: { $ref: '#/components/schemas/TipoSector' }
+              capacidad: { type: integer, example: 600 }
+              disponibles: { type: integer, example: 574 }
+    AsientoRef:
+      type: object
+      required: [fila, numero]
+      properties:
+        fila: { type: integer, example: 3 }
+        numero: { type: integer, example: 10 }
+    AsientoEstado:
+      allOf:
+        - $ref: '#/components/schemas/AsientoRef'
+        - type: object
+          properties:
+            estado: { $ref: '#/components/schemas/EstadoAsiento' }
+    ReservaRequest:
+      type: object
+      required: [eventoId, sectorId]
+      description: Enviar `asientos` si el sector es numerado, o `cantidad` si es no numerado.
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        sectorId: { type: integer, format: int64, example: 11 }
+        asientos:
+          type: array
+          items: { $ref: '#/components/schemas/AsientoRef' }
+        cantidad: { type: integer, minimum: 1, example: 3 }
+    Reserva:
+      type: object
+      properties:
+        reservaId: { type: string, format: uuid, example: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11 }
+        eventoId: { type: integer, format: int64 }
+        sectorId: { type: integer, format: int64 }
+        clienteId: { type: string, example: '101' }
+        estado: { $ref: '#/components/schemas/EstadoReserva' }
+        cantidad: { type: integer, example: 2 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AsientoRef' }
+        expiraEn: { type: string, format: date-time, example: '2026-11-07T17:12:00' }
+
+    # ---- compras y entradas
+    MedioPago:
+      type: object
+      required: [tipo, token]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoMedioPago' }
+        token: { type: string, description: 'Token de la pasarela mock: tok_ok, tok_rechazado o tok_timeout', example: tok_ok }
+        ultimos4: { type: string, example: '4242' }
+    CompraRequest:
+      type: object
+      required: [reservaId, medioPago]
+      properties:
+        reservaId: { type: string, format: uuid, example: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11 }
+        medioPago: { $ref: '#/components/schemas/MedioPago' }
+    Entrada:
+      type: object
+      properties:
+        entradaId: { type: string, format: uuid, example: e1b2c3d4-0001-4aaa-8bbb-111122223333 }
+        eventoId: { type: integer, format: int64, example: 42 }
+        sectorId: { type: integer, format: int64, example: 11 }
+        fila: { type: integer, nullable: true, example: 3 }
+        numero: { type: integer, nullable: true, example: 10 }
+        precioUnitario: { type: number, format: double, example: 45000.00 }
+        codigoQr: { type: string, description: Código único para validar el ingreso, example: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64 }
+        estado: { $ref: '#/components/schemas/EstadoEntrada' }
+    Compra:
+      type: object
+      properties:
+        compraId: { type: string, format: uuid, example: c0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9aa }
+        estado: { $ref: '#/components/schemas/EstadoCompra' }
+        total: { type: number, format: double, example: 90000.00 }
+        medioPago:
+          type: object
+          properties:
+            tipo: { $ref: '#/components/schemas/TipoMedioPago' }
+            ultimos4: { type: string, example: '4242' }
+        entradas:
+          type: array
+          items: { $ref: '#/components/schemas/Entrada' }
+    PageCompra:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Compra' }
+    PageEntrada:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Entrada' }
+
+    # ---- devoluciones
+    DevolucionRequest:
+      type: object
+      required: [entradaId]
+      properties:
+        entradaId: { type: string, format: uuid, example: e1b2c3d4-0001-4aaa-8bbb-111122223333 }
+        motivo: { type: string, example: No puedo asistir }
+    Devolucion:
+      type: object
+      properties:
+        devolucionId: { type: string, format: uuid, example: d4e5f6a7-0001-4bbb-9ccc-444455556666 }
+        entradaId: { type: string, format: uuid }
+        estado: { $ref: '#/components/schemas/EstadoDevolucion' }
+        monto: { type: number, format: double, example: 45000.00 }
+        motivo: { type: string }
+        motivoRechazo: { type: string, nullable: true }
+        solicitadaEn: { type: string, format: date-time }
+        reintegro:
+          type: object
+          nullable: true
+          properties:
+            monto: { type: number, format: double, example: 45000.00 }
+            estado: { type: string, enum: [PENDIENTE, COMPLETADO], example: COMPLETADO }
+    PageDevolucion:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Devolucion' }
+
+    # ---- interno
+    InventarioRequest:
+      type: object
+      required: [eventoId, sectores]
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        maxPorCliente: { type: integer, example: 4 }
+        sectores:
+          type: array
+          items:
+            type: object
+            required: [sectorId, tipo]
+            properties:
+              sectorId: { type: integer, format: int64, example: 11 }
+              tipo: { $ref: '#/components/schemas/TipoSector' }
+              filas: { type: integer, example: 20 }
+              asientosPorFila: { type: integer, example: 30 }
+              capacidad: { type: integer, example: 5000 }
+
+    PageBase:
+      type: object
+      properties:
+        page: { type: integer, example: 0 }
+        size: { type: integer, example: 20 }
+        totalElements: { type: integer, format: int64, example: 1 }
+        totalPages: { type: integer, example: 1 }

@@ -1,0 +1,58 @@
+# Entrega 1: solo las bases de datos (los microservicios se ejecutan localmente).
+# Una base PostgreSQL por microservicio, cada una en su propio contenedor.
+services:
+  db-eventos:
+    image: postgres:16-alpine
+    container_name: ticketya-db-eventos
+    environment:
+      POSTGRES_DB: db_eventos
+      POSTGRES_USER: ticketya
+      POSTGRES_PASSWORD: ticketya
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-eventos-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketya -d db_eventos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-reservas:
+    image: postgres:16-alpine
+    container_name: ticketya-db-reservas
+    environment:
+      POSTGRES_DB: db_reservas
+      POSTGRES_USER: ticketya
+      POSTGRES_PASSWORD: ticketya
+    ports:
+      - "5434:5432"
+    volumes:
+      - db-reservas-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketya -d db_reservas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  db-ventas:
+    image: postgres:16-alpine
+    container_name: ticketya-db-ventas
+    environment:
+      POSTGRES_DB: db_ventas
+      POSTGRES_USER: ticketya
+      POSTGRES_PASSWORD: ticketya
+    ports:
+      - "5435:5432"
+    volumes:
+      - db-ventas-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketya -d db_ventas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db-eventos-data:
+  db-reservas-data:
+  db-ventas-data:

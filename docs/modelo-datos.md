@@ -19,6 +19,8 @@ Restricciones clave para la no doble venta:
 - `UPDATE` condicional por estado (ver `arquitectura.md`, sección 3) y columna `version` para bloqueo optimista.
 - Índices: `reserva(estado, expira_en)` para el job de vencimiento, `reserva(cliente_id, evento_id)` para el límite por cliente, `asiento(reserva_id)`.
 
+Columna `inventario_evento.agotado_notificado` (`boolean`, nullable; aún no figura en el diagrama): último valor de agotado que ms-eventos confirmó. `NULL` significa que todavía no se notificó nada. Si difiere del estado real (lugares libres = 0), el job reintenta el aviso.
+
 ## 3. ms-ventas (`db_ventas`)
 
 ![Diagrama entidad-relación de ms-ventas](TicketYa-DB-Ventas-der.png)

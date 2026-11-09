@@ -32,3 +32,7 @@ ticketya:
     max-por-cliente-default: 4
   services:
     eventos-url: ${MS_EVENTOS_URL:http://localhost:8081}
+    eventos-timeout-ms: 3000
+  jobs:
+    habilitados: true
+    intervalo-ms: 30000

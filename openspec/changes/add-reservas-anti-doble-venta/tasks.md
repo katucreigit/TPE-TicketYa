@@ -2,15 +2,15 @@
 
 ## 1. Inventario y disponibilidad
 
-- [ ] 1.1 Las entidades ya traen UNIQUE(evento_id, sector_id, fila, numero) en Asiento, CHECK (disponibles >= 0) en InventarioSector y @Version; no rediseñarlas. Agregar a los repositorios (hoy vacíos) las consultas nativas y los @Modifying que pide el design, y reutilizar ApiException, ErrorResponse y GlobalExceptionHandler ya existentes.
-- [ ] 1.2 Dependencias de test en el pom: Testcontainers (postgresql y junit-jupiter) y spring-boot-testcontainers.
-- [ ] 1.3 POST /internal/inventarios: crear InventarioEvento (abierto, maxPorCliente con 4 por defecto), InventarioSector y un Asiento LIBRE por cada fila y número; responder 409 sin modificar nada si el inventario ya existe.
-- [ ] 1.4 Validaciones de la inicialización (filas, asientosPorFila, capacidad, sectores repetidos, maxPorCliente) con la operación completa en una sola transacción.
-- [ ] 1.5 GET /eventos/{eventoId}/disponibilidad con libres por sector.
-- [ ] 1.6 GET /eventos/{eventoId}/sectores/{sectorId}/asientos con filtro estado y orden por fila y número; 400 en sectores no numerados.
-- [ ] 1.7 POST /internal/eventos/{eventoId}/cerrar (abierto=false y liberar reservas PENDIENTE) y /abrir.
-- [ ] 1.8 Cliente HTTP a ms-eventos para el aviso de agotado y su reintento desde el job.
-- [ ] 1.9 Manejo de errores con los códigos del contrato (VALIDACION, NO_ENCONTRADO, ASIENTO_NO_DISPONIBLE, CUPO_INSUFICIENTE, EVENTO_NO_DISPONIBLE, LIMITE_POR_CLIENTE, RESERVA_CONFIRMADA, RESERVA_VENCIDA, ACCESO_DENEGADO).
+- [x] 1.1 Las entidades ya traen UNIQUE(evento_id, sector_id, fila, numero) en Asiento, CHECK (disponibles >= 0) en InventarioSector y @Version; no rediseñarlas. Agregar a los repositorios (hoy vacíos) las consultas nativas y los @Modifying que pide el design, y reutilizar ApiException, ErrorResponse y GlobalExceptionHandler ya existentes.
+- [x] 1.2 Dependencias de test en el pom: Testcontainers (postgresql y junit-jupiter) y spring-boot-testcontainers.
+- [x] 1.3 POST /internal/inventarios: crear InventarioEvento (abierto, maxPorCliente con 4 por defecto), InventarioSector y un Asiento LIBRE por cada fila y número; responder 409 sin modificar nada si el inventario ya existe.
+- [x] 1.4 Validaciones de la inicialización (filas, asientosPorFila, capacidad, sectores repetidos, maxPorCliente) con la operación completa en una sola transacción.
+- [x] 1.5 GET /eventos/{eventoId}/disponibilidad con libres por sector.
+- [x] 1.6 GET /eventos/{eventoId}/sectores/{sectorId}/asientos con filtro estado y orden por fila y número; 400 en sectores no numerados.
+- [x] 1.7 POST /internal/eventos/{eventoId}/cerrar (abierto=false y liberar reservas PENDIENTE) y /abrir.
+- [x] 1.8 Cliente HTTP a ms-eventos para el aviso de agotado y su reintento desde el job.
+- [x] 1.9 Manejo de errores con los códigos del contrato (VALIDACION, NO_ENCONTRADO, ASIENTO_NO_DISPONIBLE, CUPO_INSUFICIENTE, EVENTO_NO_DISPONIBLE, LIMITE_POR_CLIENTE, RESERVA_CONFIRMADA, RESERVA_VENCIDA, ACCESO_DENEGADO).
 
 ## 2. Reservas
 

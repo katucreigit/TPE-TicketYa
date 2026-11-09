@@ -138,7 +138,7 @@ Criterios de aceptación:
 
 Criterios de aceptación:
 - **Dado** un evento `PUBLICADO` o `AGOTADO`, **cuando** lo suspendo, **entonces** pasa a `SUSPENDIDO`, deja de aparecer en búsquedas y no admite nuevas reservas.
-- **Dado** un evento `SUSPENDIDO` con reservas `PENDIENTE`, **cuando** vencen o se cancelan, **entonces** los lugares se liberan pero el evento sigue sin admitir nuevas reservas hasta reanudarse.
+- **Dado** un evento con reservas `PENDIENTE`, **cuando** lo suspendo o cancelo, **entonces** se cierra su inventario, esas reservas se liberan y sus lugares quedan libres, pero el evento no admite nuevas reservas hasta reanudarse.
 - **Dado** un evento no finalizado ni cancelado, **cuando** lo cancelo con un motivo, **entonces** pasa a `CANCELADO`, se liberan sus reservas pendientes y se dispara el reintegro de todas sus entradas (US-20).
 - **Dado** un evento `SUSPENDIDO`, **cuando** lo reanudo, **entonces** vuelve a `PUBLICADO` y se reabre su inventario.
 - **Dado** un evento `FINALIZADO` o ya `CANCELADO`, **cuando** intento cancelarlo, **entonces** recibo `409`.
@@ -208,7 +208,7 @@ Criterios de aceptación:
 - **Dado** que pido asientos en un sector no numerado o `cantidad` en uno numerado, **cuando** reservo, **entonces** recibo `400`.
 - **Dado** una `cantidad` menor o igual a 0, **cuando** reservo, **entonces** recibo `400`.
 - **Dado** una solicitud con el mismo asiento repetido, **cuando** reservo, **entonces** recibo `400`.
-- **Dado** una reserva creada, **cuando** se registra, **entonces** guarda el precio de cada lugar al momento de reservar y el vencimiento se calcula desde el instante de creación; un cambio posterior de precio no altera el importe.
+- **Dado** una reserva creada, **cuando** se registra, **entonces** el vencimiento se calcula desde el instante de creación; el precio lo toma ms-ventas de ms-eventos al pagar y no cambia, porque los precios no se modifican con el evento publicado (US-04).
 - **Dado** que el pedido supera el límite de entradas por cliente y evento (US-15), **cuando** reservo, **entonces** recibo `422` y no se reserva nada.
 
 ### US-12 Pagar la reserva y recibir las entradas

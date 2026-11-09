@@ -35,7 +35,7 @@ Si la reserva venció antes del pago, entonces el sistema SHALL responder 410 si
 - **AND** el sistema responde 410
 
 ### Requirement: Falla de la pasarela
-Si la pasarela no responde o no se puede conectar, entonces el sistema SHALL responder 504 (o 502/503 si está caída) sin confirmar nada y conservar la reserva vigente para reintentar con la misma Idempotency-Key.
+Si la pasarela no responde tras recibir el cobro, entonces el sistema SHALL responder 504, mantener la compra PENDIENTE y conservar la reserva vigente; si no se pudo conectar, SHALL responder 502 o 503 con la compra PENDIENTE.
 
 #### Scenario: Timeout
 - **WHEN** se paga con tok_timeout
@@ -44,11 +44,13 @@ Si la pasarela no responde o no se puede conectar, entonces el sistema SHALL res
 
 #### Scenario: Reintento tras falla
 - **WHEN** se reintenta con la misma clave y la reserva sigue vigente
-- **THEN** el pago se procesa una sola vez
+- **THEN** se reutiliza la misma compra y la misma clave de cobro
+- **AND** se cobra a lo sumo una vez
 
 #### Scenario: Reintento con reserva vencida
 - **WHEN** se reintenta después del vencimiento
-- **THEN** el sistema responde 410 sin cobrar
+- **THEN** el sistema responde 410
+- **AND** la compra queda FALLIDA y no se envía un nuevo cobro
 
 ### Requirement: Reserva ajena
 Si la reserva pertenece a otro cliente, entonces el sistema SHALL responder 403.
@@ -72,6 +74,13 @@ Cuando llega una compra con una Idempotency-Key ya usada por el mismo cliente y 
 #### Scenario: Sin clave
 - **WHEN** falta el header Idempotency-Key
 - **THEN** el sistema responde 400
+
+### Requirement: Cobro idempotente
+Cuando se envía el cobro a la pasarela, el sistema SHALL incluir una clave derivada del id de la compra, de modo que un mismo pedido no se cobre dos veces aunque se repita.
+
+#### Scenario: Cobro repetido
+- **WHEN** el cobro se envía dos veces con la misma clave
+- **THEN** la pasarela cobra una sola vez
 
 ### Requirement: Solicitudes simultáneas
 Cuando dos solicitudes simultáneas comparten la misma clave y cuerpo, el sistema SHALL ejecutar un único cobro.

@@ -221,9 +221,11 @@ Criterios de aceptación:
 - **Dado** una reserva vencida, **cuando** intento pagar, **entonces** recibo `410`, no se cobra nada y la compra queda `FALLIDA`.
 - **Dado** que el pago se aprobó pero la reserva venció durante el cobro, **cuando** ms-reservas rechaza la confirmación, **entonces** se reembolsa el pago (compensación) y recibo `410`.
 - **Dado** una reserva de otro cliente, **cuando** intento pagarla, **entonces** recibo `403`.
-- **Dado** que la pasarela no responde a tiempo, **cuando** pago, **entonces** recibo `504`, no se confirma la reserva ni se emiten entradas, y la reserva sigue vigente hasta su vencimiento.
-- **Dado** que la pasarela está caída y no se puede conectar, **cuando** pago, **entonces** recibo `502` o `503`, no se confirma nada y la reserva sigue vigente.
-- **Dado** una falla de la pasarela (`504`, `502` o `503`), **cuando** reintento con la misma `Idempotency-Key` y la reserva sigue vigente, **entonces** se procesa el pago una sola vez; si la reserva ya venció, recibo `410` y no se cobra.
+- **Dado** que el cobro se envía a la pasarela, **cuando** se envía, **entonces** lleva una clave propia derivada del id de la compra, de modo que la pasarela no cobre dos veces el mismo pedido aunque se repita.
+- **Dado** que la pasarela no responde a tiempo después de enviar el cobro, **cuando** pago, **entonces** recibo `504`, la compra sigue `PENDIENTE`, no se confirma la reserva ni se emiten entradas, y la reserva sigue vigente hasta su vencimiento.
+- **Dado** que no se pudo establecer conexión con la pasarela (el cobro no se envió), **cuando** pago, **entonces** recibo `502` o `503`, la compra sigue `PENDIENTE` y no se confirma nada.
+- **Dado** una compra `PENDIENTE` tras una falla de la pasarela (`504`, `502` o `503`), **cuando** reintento con la misma `Idempotency-Key` y la reserva sigue vigente, **entonces** se reutiliza la misma compra y la misma clave de cobro, por lo que a lo sumo se cobra una vez: si la pasarela ya había cobrado, devuelve el resultado original.
+- **Dado** una compra `PENDIENTE` cuya reserva ya venció, **cuando** reintento, **entonces** recibo `410`, la compra queda `FALLIDA` y no se envía un nuevo cobro.
 - **Dado** que el pago es un paso externo a la base de datos, **cuando** un paso posterior falla después de aprobarse el cobro, **entonces** se compensa con un reembolso (la compra no queda cobrada sin entradas).
 
 ### US-13 Reintentar el pago sin duplicar la compra (idempotencia)
@@ -236,6 +238,7 @@ Criterios de aceptación:
 - **Dado** dos solicitudes simultáneas con la misma clave, **cuando** se procesan, **entonces** solo una ejecuta el cobro.
 - **Dado** una clave de idempotencia, **cuando** se guarda, **entonces** queda asociada al cliente y a la operación, y se persiste junto con su resultado en la base (no solo en memoria).
 - **Dado** una repetición de la solicitud, **cuando** se procesa, **entonces** devuelve el resultado original sin crear otra compra ni otras entradas.
+- **Dado** una compra `PENDIENTE` tras una falla de la pasarela, **cuando** repito con la misma clave, **entonces** se reanuda esa misma compra con su misma clave de cobro (US-12) y no se crea otra.
 
 ### US-14 Liberar una reserva (manual o por vencimiento)
 **Como** cliente o sistema, **quiero** liberar los lugares reservados que no se van a pagar, **para** que otros puedan comprarlos.
@@ -382,6 +385,6 @@ Criterios de aceptación:
 |---|---|---|
 | TS-01 | Autenticación y autorización con JWT y roles (cliente, organizador, administrador, acceso) | Cada endpoint solo es accesible por los roles que corresponden; sin token válido, `401` |
 | TS-02 | Trazabilidad: log de cada request HTTP y log centralizado de operaciones críticas con identificador de correlación | Una compra se puede seguir de punta a punta por su `correlationId` en todos los servicios |
-| TS-03 | Resiliencia: reintentos, timeouts y fallback ante fallas de pasarela y notificaciones | Si la pasarela no responde, la compra falla de forma controlada y se compensa |
+| TS-03 | Resiliencia: reintentos, timeouts y fallback ante fallas de pasarela y notificaciones | Si la pasarela no responde, la compra falla de forma controlada y se compensa. Incluye el estado `PAGO_INCIERTO` para un cobro sin respuesta, la consulta del estado del cobro a la pasarela antes de reintentar y un proceso de reconciliación de compras sin resolver |
 | TS-04 | Cache de catálogo y detalle de eventos con TTL e invalidación; la disponibilidad de asientos no se cachea | Un cambio de evento invalida su entrada de cache |
 | TS-05 | Despliegue con Docker: un contenedor por servicio, bases y gateway, y un único `docker-compose.yml`; prueba de carga del flujo de compra | `docker compose up` levanta todo el sistema; informe de JMeter con usuarios concurrentes y errores |

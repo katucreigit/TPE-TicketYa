@@ -23,7 +23,7 @@ Restricciones clave para la no doble venta:
 
 ![Diagrama entidad-relación de ms-ventas](TicketYa-DB-Ventas-der.png)
 
-Restricciones: `UNIQUE(cliente_id, idempotency_key)` en `compra`; `UNIQUE(codigo_qr)` en `entrada`; una sola devolución activa por entrada (validado en la lógica); `UNIQUE(entrada_id, tipo)` en `reintegro` (a lo sumo un reintegro de cada tipo por entrada), lo que hace idempotente la cancelación del evento; un reintento de reintegro fallido reutiliza el registro existente.
+Restricciones: `UNIQUE(cliente_id, idempotency_key)` en `compra`; `UNIQUE(codigo_qr)` en `entrada`; una sola devolución activa por entrada (validado en la lógica); `UNIQUE(entrada_id, tipo)` en `reintegro` (a lo sumo un reintegro de cada tipo por entrada), lo que hace idempotente la cancelación del evento; un reintento de reintegro fallido reutiliza el registro existente. La clave de cobro que se envía a la pasarela se deriva del `id` de la compra, por lo que no necesita una columna propia.
 
 ## 4. Relaciones entre servicios y entidades solapadas
 

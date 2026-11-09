@@ -9,6 +9,7 @@ Con el inventario protegido falta completar la compra: cobrar, emitir las entrad
 - Pago de una reserva con pasarela simulada y emisión de una entrada con QR por lugar (US-12).
 - Idempotencia con Idempotency-Key persistida (US-13).
 - Compensaciones: pago rechazado, reserva vencida antes o durante el cobro.
+- Cobro idempotente hacia la pasarela con una clave derivada del id de la compra.
 - Consulta de compras y entradas del cliente (US-16).
 
 ## Capabilities

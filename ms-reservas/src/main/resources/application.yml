@@ -36,3 +36,4 @@ ticketya:
   jobs:
     habilitados: true
     intervalo-ms: 30000
+    lote-vencimiento: 100

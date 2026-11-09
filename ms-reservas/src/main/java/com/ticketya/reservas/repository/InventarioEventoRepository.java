@@ -3,6 +3,7 @@ package com.ticketya.reservas.repository;
 import com.ticketya.reservas.model.InventarioEvento;
 import com.ticketya.reservas.repository.projection.AvisoPendienteView;
 import com.ticketya.reservas.repository.projection.EstadoAvisoView;
+import com.ticketya.reservas.repository.projection.InventarioReservaView;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -22,6 +23,14 @@ public interface InventarioEventoRepository extends JpaRepository<InventarioEven
             + "VALUES (:eventoId, true, :maxPorCliente, localtimestamp, NULL) "
             + "ON CONFLICT (evento_id) DO NOTHING", nativeQuery = true)
     int insertarSiNoExiste(@Param("eventoId") Long eventoId, @Param("maxPorCliente") int maxPorCliente);
+
+    /**
+     * Lee el inventario con FOR SHARE para reservar: un cierre concurrente (UPDATE de la misma fila) espera
+     * a que termine la reserva en curso y despues la encuentra entre las PENDIENTE a liberar.
+     */
+    @Query(value = "SELECT abierto AS \"abierto\", max_por_cliente AS \"maxPorCliente\" "
+            + "FROM inventario_evento WHERE evento_id = :eventoId FOR SHARE", nativeQuery = true)
+    Optional<InventarioReservaView> bloquearParaReservar(@Param("eventoId") Long eventoId);
 
     /** Marca el inventario como cerrado. Devuelve 0 si el evento no tiene inventario. */
     @Modifying(flushAutomatically = true)

@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface ReservaRepository extends JpaRepository<Reserva, UUID> {
@@ -53,6 +54,20 @@ public interface ReservaRepository extends JpaRepository<Reserva, UUID> {
     @Query(value = "SELECT id FROM reserva WHERE evento_id = :eventoId AND estado = 'PENDIENTE' "
             + "ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> bloquearPendientesDeEvento(@Param("eventoId") Long eventoId);
+
+    /** Estado confirmado en la base (sin pasar por el contexto de persistencia). */
+    @Query(value = "SELECT estado FROM reserva WHERE id = :id", nativeQuery = true)
+    Optional<String> estadoActual(@Param("id") UUID id);
+
+    /** Bloquea la reserva y devuelve su estado; serializa las devoluciones sobre la misma reserva. */
+    @Query(value = "SELECT estado FROM reserva WHERE id = :id FOR UPDATE", nativeQuery = true)
+    Optional<String> bloquearEstado(@Param("id") UUID id);
+
+    /** Devolucion: descuenta unidades de una reserva CONFIRMADA sin quedar negativa. */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE reserva SET cantidad = cantidad - :cantidad "
+            + "WHERE id = :id AND estado = 'CONFIRMADA' AND cantidad >= :cantidad", nativeQuery = true)
+    int descontarCantidad(@Param("id") UUID id, @Param("cantidad") int cantidad);
 
     /** Pasa a LIBERADA las reservas indicadas que siguen PENDIENTE. */
     @Modifying(flushAutomatically = true)

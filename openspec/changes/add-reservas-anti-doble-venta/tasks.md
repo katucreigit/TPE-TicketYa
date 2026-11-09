@@ -14,15 +14,15 @@
 
 ## 2. Reservas
 
-- [ ] 2.1 Entidad Reserva con estados PENDIENTE, CONFIRMADA, LIBERADA y VENCIDA, e ítems con asiento o cantidad.
-- [ ] 2.2 POST /reservas para sectores numerados: validar pedido, tomar el advisory lock, comprobar el límite y ejecutar los UPDATE condicionales todo o nada.
-- [ ] 2.3 POST /reservas para sectores no numerados con la resta atómica del cupo.
-- [ ] 2.4 Verificar rol CLIENTE y headers de identidad en los endpoints públicos.
-- [ ] 2.5 GET /reservas/{id} solo para el dueño.
-- [ ] 2.6 DELETE /reservas/{id}: 204, idempotente para reservas ya liberadas o vencidas, 409 RESERVA_CONFIRMADA si está confirmada.
-- [ ] 2.7 POST /internal/reservas/{id}/confirmar (200 también si ya estaba CONFIRMADA, 409 si fue liberada, 410 si venció) y /liberar idempotente.
-- [ ] 2.8 POST /internal/reservas/{id}/devolver para sectores numerados y no numerados.
-- [ ] 2.9 Job @Scheduled de vencimiento con FOR UPDATE SKIP LOCKED.
+- [x] 2.1 Entidad Reserva con estados PENDIENTE, CONFIRMADA, LIBERADA y VENCIDA, e ítems con asiento o cantidad.
+- [x] 2.2 POST /reservas para sectores numerados: validar pedido, tomar el advisory lock, comprobar el límite y ejecutar los UPDATE condicionales todo o nada.
+- [x] 2.3 POST /reservas para sectores no numerados con la resta atómica del cupo.
+- [x] 2.4 Verificar rol CLIENTE y headers de identidad en los endpoints públicos.
+- [x] 2.5 GET /reservas/{id} solo para el dueño.
+- [x] 2.6 DELETE /reservas/{id}: 204, idempotente para reservas ya liberadas o vencidas, 409 RESERVA_CONFIRMADA si está confirmada.
+- [x] 2.7 POST /internal/reservas/{id}/confirmar (200 también si ya estaba CONFIRMADA, 409 si fue liberada, 410 si venció) y /liberar idempotente.
+- [x] 2.8 POST /internal/reservas/{id}/devolver para sectores numerados y no numerados.
+- [x] 2.9 Job @Scheduled de vencimiento con FOR UPDATE SKIP LOCKED.
 
 ## 3. Pruebas
 

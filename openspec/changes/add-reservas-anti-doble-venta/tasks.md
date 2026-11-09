@@ -12,7 +12,7 @@
 - [ ] 2.1 Entidad Reserva con estados PENDIENTE, CONFIRMADA, LIBERADA y VENCIDA.
 - [ ] 2.2 Crear reserva con UPDATE condicional todo o nada, guardando el precio de cada lugar.
 - [ ] 2.3 Validar cantidad mayor a 0, asientos sin repetir y evento PUBLICADO.
-- [ ] 2.4 Validar el límite por cliente en la base.
+- [ ] 2.4 Validar el límite por cliente en la base, usando el valor que ms-eventos envía al publicar.
 - [ ] 2.5 Endpoints de confirmar (interno) y cancelar (DELETE) con 404, 403 y 409.
 - [ ] 2.6 Job programado de vencimiento a los 10 minutos.
 

@@ -11,7 +11,8 @@
 - [ ] 2.1 Entidad Evento con enum de estados y transiciones válidas.
 - [ ] 2.2 Alta de evento en BORRADOR con organizador tomado de X-User-Id.
 - [ ] 2.3 Edición de datos y configuración de precios por sector en BORRADOR.
-- [ ] 2.4 Publicación: validar precios, llamar a ms-reservas y manejar el 502.
+- [ ] 2.4 Campo maxEntradasPorCliente (mínimo 1, por defecto 4) en alta y edición, y envío del valor a ms-reservas al publicar.
+- [ ] 2.5 Publicación: validar precios, llamar a ms-reservas y manejar el 502.
 
 ## 3. Estados
 

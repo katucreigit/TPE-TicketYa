@@ -28,6 +28,21 @@ Si la fecha y hora no son futuras o el tipo está fuera del catálogo, entonces 
 - **WHEN** el lugar no existe
 - **THEN** el sistema responde 404
 
+### Requirement: Límite de entradas por cliente
+Cuando el organizador crea o edita un evento en BORRADOR, el sistema SHALL permitir definir maxEntradasPorCliente como entero mayor o igual a 1, con valor 4 por defecto, y copiarlo al inventario al publicar; un valor menor a 1 SHALL responder 400.
+
+#### Scenario: Valor por defecto
+- **WHEN** se crea un evento sin maxEntradasPorCliente
+- **THEN** el límite es 4
+
+#### Scenario: Valor inválido
+- **WHEN** maxEntradasPorCliente es 0
+- **THEN** el sistema responde 400
+
+#### Scenario: Copia al publicar
+- **WHEN** se publica el evento
+- **THEN** ms-reservas recibe el límite configurado
+
 ### Requirement: Edición en borrador
 Mientras el evento esté en BORRADOR, el sistema SHALL permitir editarlo; si ya no está en BORRADOR, SHALL responder 409.
 

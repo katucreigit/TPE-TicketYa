@@ -106,6 +106,9 @@ Criterios de aceptación:
 - **Dado** un cuerpo que incluye un `organizadorId`, **cuando** creo el evento, **entonces** se ignora: el organizador es siempre el de `X-User-Id`.
 - **Dado** un tipo fuera del catálogo (recital, teatro, deporte, conferencia, otro), **cuando** creo el evento, **entonces** recibo `400`.
 - **Dado** un evento en `BORRADOR`, **cuando** lo edito, **entonces** los cambios se guardan; si el evento ya no está en `BORRADOR`, recibo `409`.
+- **Dado** que creo o edito un evento en `BORRADOR`, **cuando** informo `maxEntradasPorCliente` (entero mayor o igual a 1), **entonces** queda como el límite de entradas por cliente de ese evento; si no lo informo, vale 4.
+- **Dado** un `maxEntradasPorCliente` menor a 1, **cuando** creo o edito el evento, **entonces** recibo `400`.
+- **Dado** un evento que se publica, **cuando** se inicializa su inventario, **entonces** el límite se copia a ms-reservas y ya no se modifica mientras el evento esté publicado.
 
 ### US-04 Configurar sectores y precios del evento
 **Como** organizador, **quiero** definir el precio de cada sector de mi evento, **para** poder venderlo.
@@ -248,7 +251,7 @@ Criterios de aceptación:
 **Como** organizador, **quiero** que cada cliente pueda comprar una cantidad máxima de entradas por evento, **para** evitar el acaparamiento.
 
 Criterios de aceptación:
-- **Dado** un límite configurado (por defecto 4), **cuando** un cliente reserva más lugares que el límite entre reservas activas y entradas vigentes del mismo evento, **entonces** recibe `422`.
+- **Dado** el límite `maxEntradasPorCliente` que el organizador definió al crear el evento (por defecto 4, US-03), **cuando** un cliente reserva más lugares que el límite entre reservas activas y entradas vigentes del mismo evento, **entonces** recibe `422`.
 - **Dado** el cómputo del límite, **cuando** se evalúa, **entonces** cuentan las reservas `PENDIENTE` no vencidas, las entradas `EMITIDA` y las entradas con devolución solicitada aún no aprobada; no cuentan las reservas vencidas ni las entradas `REINTEGRADA`.
 - **Dado** que devuelve una entrada o su reserva vence, **cuando** vuelve a reservar, **entonces** ese lugar deja de contar para el límite.
 - **Dado** dos reservas simultáneas del mismo cliente que juntas superan el límite, **cuando** se procesan, **entonces** a lo sumo una tiene éxito; el control se hace en la base de datos y no solo en memoria.

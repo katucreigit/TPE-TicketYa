@@ -6,7 +6,7 @@ Define cómo el API Gateway recibe las solicitudes públicas y las reenvía a ca
 ## ADDED Requirements
 
 ### Requirement: Enrutamiento
-Cuando llega una solicitud a /api/eventos, /api/reservas o /api/ordenes, el gateway SHALL reenviarla al servicio correspondiente sin el prefijo /api.
+Cuando llega una solicitud pública con prefijo /api, el gateway SHALL reenviarla al servicio dueño de esa ruta sin el prefijo.
 
 #### Scenario: Ruta de eventos
 - **WHEN** llega GET /api/eventos
@@ -23,7 +23,7 @@ El gateway SHALL evaluar las rutas de disponibilidad y asientos antes que la rut
 Si una solicitud externa apunta a una ruta /internal/**, entonces el gateway SHALL rechazarla con 404.
 
 #### Scenario: Acceso interno
-- **WHEN** llega POST /api/internal/reservas
+- **WHEN** llega una solicitud a /internal/reservas
 - **THEN** el gateway responde 404
 
 ### Requirement: Servicio caído

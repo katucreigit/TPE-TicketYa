@@ -1056,8 +1056,9 @@ paths:
       operationId: aprobarDevolucion
       summary: Aprobar una devolución
       description: |
-        Rol `ADMIN`. Libera el lugar en ms-reservas y solicita el reintegro a la pasarela. Queda `REINTEGRADA`.
-        Si la pasarela falla responde `502` y la devolución sigue `SOLICITADA` para poder reintentar.
+        Rol `ADMIN`. La devolución pasa a `EN_PROCESO` y se solicita el reintegro a la pasarela y la liberación del
+        lugar en ms-reservas; al completarse ambos queda `REINTEGRADA`. Si la pasarela falla responde `502` y la
+        devolución sigue `EN_PROCESO`; aprobar de nuevo reintenta solo la parte pendiente (no devuelve el dinero dos veces).
       parameters:
         - $ref: '#/components/parameters/IdUuid'
         - $ref: '#/components/parameters/XUserId'
@@ -1477,7 +1478,7 @@ components:
       enum: [EMITIDA, DEVOLUCION_SOLICITADA, REINTEGRO_PENDIENTE, REINTEGRADA, USADA]
     EstadoDevolucion:
       type: string
-      enum: [SOLICITADA, APROBADA, RECHAZADA, REINTEGRADA]
+      enum: [SOLICITADA, EN_PROCESO, REINTEGRADA, RECHAZADA]
     TipoMedioPago:
       type: string
       enum: [TARJETA_CREDITO, TARJETA_DEBITO]

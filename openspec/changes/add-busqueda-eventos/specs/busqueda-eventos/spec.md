@@ -1,49 +1,59 @@
 # Spec Delta
 
 ## Purpose
-Permite a cualquier usuario encontrar eventos publicados combinando criterios, con paginación y orden.
+Permite a cualquier usuario encontrar eventos combinando criterios, con orden estable y paginación.
 
 ## ADDED Requirements
 
-### Requirement: Solo eventos publicados
-Cuando se ejecuta una búsqueda, el sistema SHALL considerar únicamente eventos en estado PUBLICADO.
+### Requirement: Eventos visibles
+Cuando se ejecuta una búsqueda, el sistema SHALL devolver únicamente eventos PUBLICADO o AGOTADO, nunca borradores, suspendidos ni cancelados.
 
-#### Scenario: Excluye borradores
-- **WHEN** se busca sin filtros
-- **THEN** no aparecen eventos BORRADOR ni CANCELADO
+#### Scenario: Excluye otros estados
+- **WHEN** existen eventos en todos los estados
+- **THEN** solo aparecen los PUBLICADO y AGOTADO
 
 ### Requirement: Filtros combinados
-Cuando se envían varios filtros (texto, categoría, fechas, lugar, precio), el sistema SHALL devolver los eventos que cumplen todos a la vez.
+Cuando se envían varios filtros entre tipo, organizadorId, participante, ciudad, fechaDesde, fechaHasta y q, el sistema SHALL devolver solo los eventos que cumplen todos a la vez.
 
-#### Scenario: Categoría y fecha
-- **WHEN** se filtra por categoría y rango de fechas
+#### Scenario: Tipo y ciudad
+- **WHEN** se filtra por tipo y ciudad
 - **THEN** solo se devuelven eventos que cumplen ambos
 
-### Requirement: Rango inválido
-Si la fecha desde es posterior a la fecha hasta, entonces el sistema SHALL responder 400.
+### Requirement: Texto libre
+Cuando se envía q, el sistema SHALL compararlo sin distinguir mayúsculas contra nombre y descripción del evento, tipo y nombres de participantes.
+
+#### Scenario: Búsqueda por participante
+- **WHEN** q coincide con el nombre de un participante
+- **THEN** el evento aparece en los resultados
+
+### Requirement: Rango de fechas
+Si fechaDesde es posterior a fechaHasta, entonces el sistema SHALL responder 400.
 
 #### Scenario: Fechas invertidas
-- **WHEN** desde es mayor que hasta
+- **WHEN** fechaDesde es mayor que fechaHasta
 - **THEN** el sistema responde 400
 
-### Requirement: Paginación y orden
-El sistema SHALL paginar los resultados con tamaño máximo de página y permitir ordenar por fecha o precio.
+### Requirement: Orden
+Cuando se indica orden por fecha, precio o relevancia y dirección asc o desc, el sistema SHALL ordenar en consecuencia, usando el precio mínimo de los sectores para el precio.
 
 #### Scenario: Orden por precio
-- **WHEN** se pide orden por precio ascendente
-- **THEN** los resultados vienen ordenados por precio
+- **WHEN** se ordena por precio ascendente
+- **THEN** se usa el menor precio de cada evento
 
-### Requirement: Disponibilidad
-Cuando se solicita filtrar por disponibilidad, el sistema SHALL incluir solo eventos con entradas disponibles; si ms-reservas no responde, SHALL indicar disponibilidad desconocida.
+#### Scenario: Relevancia
+- **WHEN** se ordena por relevancia con q
+- **THEN** los eventos con coincidencia en el nombre van primero
 
-#### Scenario: Servicio caído
-- **WHEN** ms-reservas no responde en el tiempo límite
-- **THEN** la búsqueda responde 200
-- **AND** la disponibilidad figura como desconocida
+### Requirement: Orden estable
+Si dos eventos tienen el mismo valor de ordenamiento, el sistema SHALL desempatar por fecha y luego por id.
 
-### Requirement: Sin resultados
-Si ningún evento cumple los filtros, entonces el sistema SHALL responder 200 con una lista vacía.
+#### Scenario: Empate
+- **WHEN** dos eventos tienen el mismo precio mínimo
+- **THEN** el orden entre ellos es siempre el mismo
 
-#### Scenario: Lista vacía
+### Requirement: Paginación y vacío
+El sistema SHALL paginar con page y size e incluir el total; si nada coincide, SHALL responder 200 con lista vacía.
+
+#### Scenario: Sin resultados
 - **WHEN** ningún evento coincide
-- **THEN** el sistema responde 200 con página vacía
+- **THEN** el sistema responde 200 con lista vacía

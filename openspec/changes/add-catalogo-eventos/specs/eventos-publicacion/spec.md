@@ -1,66 +1,79 @@
 # Spec Delta
 
 ## Purpose
-Define el ciclo de vida de los eventos y las reglas para crearlos, editarlos y publicarlos al público.
+Define cómo se crean, configuran y publican los eventos.
 
 ## ADDED Requirements
 
-### Requirement: Creación de evento en borrador
-Cuando un ORGANIZADOR crea un evento sobre un lugar existente con fecha futura, el sistema SHALL guardarlo en estado BORRADOR y responder 201.
+### Requirement: Creación en borrador
+Cuando un ORGANIZADOR crea un evento con lugar y participantes existentes y fecha y hora futuras, el sistema SHALL guardarlo en BORRADOR con el organizador de X-User-Id y responder 201.
 
 #### Scenario: Evento válido
-- **WHEN** un ORGANIZADOR crea un evento con lugar existente y fecha futura
+- **WHEN** un ORGANIZADOR crea un evento válido
 - **THEN** el sistema responde 201
-- **AND** el estado es BORRADOR
+- **AND** el estado es BORRADOR y el organizador es el de X-User-Id
+
+#### Scenario: Organizador en el cuerpo
+- **WHEN** el cuerpo trae otro organizadorId
+- **THEN** se ignora y se usa X-User-Id
+
+### Requirement: Datos inválidos
+Si la fecha y hora no son futuras o el tipo está fuera del catálogo, entonces el sistema SHALL responder 400; si el lugar o un participante no existe, SHALL responder 404.
 
 #### Scenario: Fecha pasada
-- **WHEN** la fecha del evento es anterior a hoy
+- **WHEN** la fecha del evento ya pasó
 - **THEN** el sistema responde 400
 
-### Requirement: Precio por sector
-Mientras un evento esté en BORRADOR, el sistema SHALL permitir definir y modificar el precio de cada sector; el precio SHALL ser mayor o igual a cero.
+#### Scenario: Lugar inexistente
+- **WHEN** el lugar no existe
+- **THEN** el sistema responde 404
 
-#### Scenario: Precio negativo
-- **WHEN** se envía un precio negativo
+### Requirement: Edición en borrador
+Mientras el evento esté en BORRADOR, el sistema SHALL permitir editarlo; si ya no está en BORRADOR, SHALL responder 409.
+
+#### Scenario: Editar publicado
+- **WHEN** se edita un evento PUBLICADO
+- **THEN** el sistema responde 409
+
+### Requirement: Precios por sector
+Cuando el organizador dueño envía precios por sector de un evento en BORRADOR, el sistema SHALL guardarlos con precisión decimal; precios menores o iguales a 0, sectores ajenos al lugar o repetidos SHALL responder 400.
+
+#### Scenario: Precio cero
+- **WHEN** se envía un precio 0
+- **THEN** el sistema responde 400
+
+#### Scenario: Sector repetido
+- **WHEN** el mismo sectorId aparece dos veces
 - **THEN** el sistema responde 400
 
 ### Requirement: Publicación
-Cuando el organizador dueño publica un evento en BORRADOR con precio definido en todos sus sectores, el sistema SHALL pasarlo a PUBLICADO.
+Cuando el organizador dueño publica un evento en BORRADOR con precio válido en todos sus sectores vendibles, el sistema SHALL inicializar el inventario en ms-reservas una sola vez y pasarlo a PUBLICADO.
 
 #### Scenario: Publicación exitosa
-- **WHEN** se publica un evento completo
+- **WHEN** se publica un evento con todos los precios
 - **THEN** el estado pasa a PUBLICADO
+- **AND** el inventario queda inicializado
 
-#### Scenario: Publicación incompleta
-- **WHEN** falta el precio de un sector
-- **THEN** el sistema responde 409 con code EVENTO_INCOMPLETO
+#### Scenario: Falta un precio
+- **WHEN** un sector vendible no tiene precio
+- **THEN** el sistema responde 422
+- **AND** el evento sigue en BORRADOR
 
-### Requirement: Transiciones válidas
-Si se solicita una transición de estado no permitida, entonces el sistema SHALL responder 409 sin modificar el evento.
+### Requirement: Falla de ms-reservas
+Si ms-reservas no responde al publicar, entonces el sistema SHALL responder 502 y mantener el evento en BORRADOR para poder reintentar sin duplicar el inventario.
 
-#### Scenario: Cancelado no se publica
-- **WHEN** se intenta publicar un evento CANCELADO
+#### Scenario: Reintento
+- **WHEN** ms-reservas estaba caído y se vuelve a publicar
+- **THEN** el evento pasa a PUBLICADO
+- **AND** no se duplican los lugares
+
+### Requirement: Publicación repetida y ajena
+Si el evento ya está publicado, el sistema SHALL responder 409; si pertenece a otro organizador, SHALL responder 403.
+
+#### Scenario: Ya publicado
+- **WHEN** se publica de nuevo un evento PUBLICADO
 - **THEN** el sistema responde 409
-- **AND** el estado no cambia
-
-### Requirement: Suspensión y reanudación
-Cuando un evento PUBLICADO se suspende, el sistema SHALL pasarlo a SUSPENDIDO; al reanudarlo SHALL volver a PUBLICADO.
-
-#### Scenario: Suspender y reanudar
-- **WHEN** se suspende un evento PUBLICADO
-- **THEN** el estado es SUSPENDIDO
-- **AND** al reanudar vuelve a PUBLICADO
-
-### Requirement: Listado público
-Cuando un usuario consulta el catálogo, el sistema SHALL devolver únicamente eventos PUBLICADO, paginados.
-
-#### Scenario: Borradores ocultos
-- **WHEN** existen eventos en BORRADOR y PUBLICADO
-- **THEN** el listado solo incluye los PUBLICADO
-
-### Requirement: Propiedad del evento
-Si un ORGANIZADOR intenta modificar un evento de otro organizador, entonces el sistema SHALL responder 403.
 
 #### Scenario: Evento ajeno
-- **WHEN** un organizador edita un evento que no creó
+- **WHEN** otro organizador intenta publicar
 - **THEN** el sistema responde 403

@@ -2,25 +2,25 @@
 
 ## Why
 
-Una compra puede deshacerse: el cliente devuelve entradas hasta cierto plazo o el organizador cancela el evento y hay que reintegrar a todos. Debe hacerse sin devolver dinero dos veces.
+Una compra puede deshacerse: el cliente pide devolver una entrada y un administrador la resuelve, o el organizador cancela el evento y hay que reintegrar a todos. Ningún caso puede devolver el dinero dos veces ni dejar el lugar sin liberar.
 
 ## What Changes
 
-- Devolución de una entrada por el cliente dentro del plazo (hasta 72 h antes del evento).
-- Cancelación de evento con reintegro masivo a todas las entradas vendidas.
-- Registro de reintegros con unicidad por entrada y tipo, y reintento de los fallidos.
-- Liberación del asiento devuelto al inventario.
+- Solicitud de devolución por el cliente hasta 72 horas antes del evento (US-18).
+- Resolución por el administrador con estados SOLICITADA, EN_PROCESO, REINTEGRADA y RECHAZADA (US-19).
+- Reintento de solo la parte fallida: reintegro o liberación del lugar.
+- Reintegro masivo al cancelar un evento, repetible e idempotente (US-20).
 
 ## Capabilities
 
 ### New Capabilities
-- `devoluciones`: devolución de entradas por el cliente
-- `cancelacion-evento-reintegros`: reintegro masivo por cancelación del evento
+- `devoluciones`: solicitud y resolución de devoluciones
+- `cancelacion-evento-reintegros`: reintegro masivo por cancelación de evento
 
 ### Modified Capabilities
 
 ## Impact
 
-- Servicios afectados: `ms-ventas` (reintegros), `ms-reservas` (liberación) y `ms-eventos` (estado CANCELADO).
-- Historias: US-18, US-19 y US-20.
-- Fuera de alcance: reintegros parciales, penalidades, cambio de entrada.
+- Servicios afectados: `ms-ventas` (devoluciones y reintegros), `ms-reservas` (liberación) y `ms-eventos` (aviso de cancelación).
+- Historias: US-18, US-19 y US-20; reglas de comunicación entre servicios de `docs/user-stories.md`.
+- Fuera de alcance: reintegros parciales, penalidades y notificaciones (E2).

@@ -2,29 +2,31 @@
 
 ## Context
 
-ms-ventas coordina la compra sin transacciones distribuidas. Cada paso tiene su compensación. Ver `docs/secuencia-compra.md` y la tabla de saga en `docs/arquitectura.md`.
+ms-ventas coordina la compra sin transacciones distribuidas: cada paso tiene su compensación. Ver `docs/secuencia-compra.md` y la tabla de saga de `docs/arquitectura.md`.
 
 ## Goals / Non-Goals
 
 **Goals:**
 - Compra consistente aunque falle un paso.
-- Reintentos sin duplicar cobros ni entradas.
-- Entrada con QR único y verificable.
+- Reintentos sin cobrar dos veces ni duplicar entradas.
+- Un QR único por entrada.
 
 **Non-Goals:**
-- Pasarela de pago real.
-- Orquestadores externos (Camunda, Temporal).
+- Pasarela real.
+- Orquestadores externos.
 
 ## Decisions
 
-**Saga orquestada.** Pasos: reservar, cobrar, confirmar reserva, emitir entrada. Si el cobro falla se libera la reserva; si falla la confirmación se reembolsa.
+**Saga.** Validar reserva, cobrar, confirmar en ms-reservas y emitir entradas. Si la pasarela rechaza, se libera la reserva (402). Si la reserva venció, no se cobra (410). Si el pago se aprobó pero ms-reservas rechaza la confirmación por vencida, se reembolsa (410).
 
-**Idempotencia.** UNIQUE(cliente_id, idempotency_key) más hash del cuerpo. Misma clave y mismo cuerpo devuelve la respuesta guardada; mismo header con cuerpo distinto devuelve 422.
+**Estados de compra.** PENDIENTE, APROBADA, RECHAZADA y FALLIDA.
 
-**Pasarela mock.** tok_ok aprueba, tok_rechazado rechaza y tok_timeout simula demora para probar compensaciones.
+**Idempotencia.** UNIQUE(cliente_id, idempotency_key) y hash del cuerpo, persistidos junto con el resultado. Dos solicitudes simultáneas con la misma clave ejecutan un solo cobro; misma clave con otro cuerpo responde 422; sin clave, 400.
 
-**Snapshots.** La orden guarda título, fecha y precios del evento al comprar, para no depender de cambios posteriores.
+**Pasarela mock.** tok_ok aprueba, tok_rechazado rechaza y tok_timeout simula una falla (504); en ese caso la reserva sigue vigente y se reintenta con la misma clave.
+
+**Datos de la compra.** Se guardan items, precio unitario, total, tipo de medio de pago y últimos 4 dígitos; nunca el token ni el número completo.
 
 ## Risks / Trade-offs
 
-- Una caída entre pasos puede dejar una orden en estado intermedio; se registra el estado de la saga para poder reintentar.
+- Una caída entre pasos puede dejar una compra PENDIENTE; la clave de idempotencia permite reintentar sin duplicar.

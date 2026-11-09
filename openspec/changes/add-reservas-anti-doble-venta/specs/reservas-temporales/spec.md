@@ -1,55 +1,73 @@
 # Spec Delta
 
 ## Purpose
-Define la reserva temporal de entradas con vencimiento, confirmación y liberación.
+Define la reserva temporal de lugares con vencimiento, cancelación y confirmación.
 
 ## ADDED Requirements
 
-### Requirement: Creación de reserva
-Cuando se solicita reservar asientos libres, el sistema SHALL marcarlos RESERVADO y crear una reserva PENDIENTE con vencimiento.
+### Requirement: Creación
+Cuando un cliente reserva lugares libres de un evento PUBLICADO, el sistema SHALL marcarlos reservados, registrar el precio de cada uno y responder 201 con vencimiento de 10 minutos desde la creación.
 
 #### Scenario: Reserva exitosa
 - **WHEN** se reservan dos asientos libres
-- **THEN** quedan RESERVADO
-- **AND** la reserva tiene fecha de vencimiento
+- **THEN** el sistema responde 201 con expiraEn
+- **AND** cada lugar guarda su precio
+
+### Requirement: Datos inválidos
+Si la cantidad es menor o igual a 0, hay asientos repetidos, o se mezclan asientos con cantidad según el tipo de sector, entonces el sistema SHALL responder 400.
+
+#### Scenario: Asiento repetido
+- **WHEN** el mismo asiento aparece dos veces
+- **THEN** el sistema responde 400
 
 ### Requirement: Todo o nada
-Si alguno de los asientos pedidos no está libre, entonces el sistema SHALL rechazar toda la reserva con 409 sin reservar ninguno.
+Si algún lugar pedido no está disponible, entonces el sistema SHALL responder 409 sin reservar ninguno.
 
 #### Scenario: Un asiento ocupado
-- **WHEN** se piden tres asientos y uno ya está reservado
+- **WHEN** se piden tres asientos y uno está reservado
 - **THEN** el sistema responde 409
 - **AND** los otros dos siguen LIBRE
 
-### Requirement: Límite por cliente
-Si la cantidad pedida más las entradas activas del cliente para el evento supera el límite configurado, entonces el sistema SHALL responder 422.
+### Requirement: Evento no reservable
+Si el evento no está PUBLICADO, entonces el sistema SHALL responder 409 al reservar.
 
-#### Scenario: Excede el límite
-- **WHEN** un cliente con 3 entradas pide 2 más y el límite es 4
-- **THEN** el sistema responde 422
+#### Scenario: Evento suspendido
+- **WHEN** se reserva en un evento SUSPENDIDO
+- **THEN** el sistema responde 409
 
 ### Requirement: Vencimiento
-Mientras una reserva esté PENDIENTE y llegue su vencimiento, el sistema SHALL marcarla EXPIRADA y liberar sus asientos.
+Mientras una reserva esté PENDIENTE y llegue su vencimiento, el sistema SHALL marcarla VENCIDA y liberar sus lugares.
 
 #### Scenario: Reserva vencida
-- **WHEN** pasa el tiempo de vencimiento sin confirmar
-- **THEN** la reserva queda EXPIRADA
-- **AND** los asientos vuelven a LIBRE
+- **WHEN** pasan 10 minutos sin pagar
+- **THEN** la reserva queda VENCIDA
+- **AND** los lugares vuelven a LIBRE
+
+### Requirement: Cancelación
+Cuando el cliente dueño cancela una reserva PENDIENTE, el sistema SHALL responder 204 y liberar sus lugares; si no existe SHALL responder 404, si es de otro cliente 403 y si está CONFIRMADA 409.
+
+#### Scenario: Reserva ajena
+- **WHEN** otro cliente cancela la reserva
+- **THEN** el sistema responde 403
+
+#### Scenario: Confirmada
+- **WHEN** se cancela una reserva CONFIRMADA
+- **THEN** el sistema responde 409
+
+### Requirement: Liberación idempotente
+Si una reserva ya está VENCIDA o liberada, entonces el sistema SHALL ignorar una nueva liberación sin modificar el inventario.
+
+#### Scenario: Doble liberación
+- **WHEN** se libera dos veces la misma reserva
+- **THEN** la disponibilidad aumenta una sola vez
 
 ### Requirement: Confirmación
-Cuando se confirma una reserva PENDIENTE dentro de su plazo, el sistema SHALL pasar los asientos a VENDIDO y la reserva a CONFIRMADA.
+Cuando ms-ventas confirma una reserva PENDIENTE antes de su vencimiento, el sistema SHALL pasar los lugares a VENDIDO; si ya venció, SHALL responder 410.
 
-#### Scenario: Confirmar a tiempo
+#### Scenario: A tiempo
 - **WHEN** se confirma antes del vencimiento
-- **THEN** los asientos pasan a VENDIDO
+- **THEN** los lugares pasan a VENDIDO
 
-#### Scenario: Confirmar vencida
+#### Scenario: Vencida
 - **WHEN** se confirma después del vencimiento
-- **THEN** el sistema responde 409 con code RESERVA_EXPIRADA
-
-### Requirement: Liberación
-Cuando se libera una reserva PENDIENTE por una compensación, el sistema SHALL devolver sus asientos a LIBRE.
-
-#### Scenario: Compensación
-- **WHEN** falla el pago y ms-ventas libera la reserva
-- **THEN** los asientos vuelven a LIBRE
+- **THEN** el sistema responde 410

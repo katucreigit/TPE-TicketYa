@@ -2,27 +2,27 @@
 
 ## Why
 
-El núcleo del trabajo es que un mismo asiento nunca se venda dos veces aunque haya muchos compradores a la vez. Esta etapa crea ms-reservas con el inventario, la reserva temporal con vencimiento y el control de concurrencia.
+El núcleo del trabajo es que un mismo lugar nunca se venda dos veces aunque haya muchos compradores a la vez. Esta etapa crea ms-reservas con el inventario, la reserva temporal con vencimiento, el límite por cliente y el control de concurrencia en la base.
 
 ## What Changes
 
-- Generación de asientos al publicar el evento y de cupo para sectores generales.
-- Consulta de disponibilidad por evento y sector.
-- Reserva temporal con vencimiento (todo o nada) y límite de entradas por cliente.
-- Confirmación y liberación de reservas, y vencimiento automático por tarea programada.
-- Prueba de concurrencia que demuestra que solo una compra del mismo asiento tiene éxito.
+- Inicialización idempotente del inventario al publicar y consulta de disponibilidad (US-10, US-05).
+- Reserva temporal todo o nada con vencimiento de 10 minutos (US-11).
+- Cancelación y vencimiento de reservas (US-14).
+- Límite de entradas por cliente y evento (US-15).
+- Garantía de no doble venta y test de concurrencia (US-17).
 
 ## Capabilities
 
 ### New Capabilities
-- `inventario-disponibilidad`: asientos, cupos y consulta de disponibilidad
+- `inventario-disponibilidad`: inventario de asientos y cupos y su disponibilidad
 - `reservas-temporales`: reserva con vencimiento, confirmación y liberación
-- `anti-doble-venta`: garantías de concurrencia sobre el inventario
+- `anti-doble-venta`: garantías de concurrencia y límite por cliente
 
 ### Modified Capabilities
 
 ## Impact
 
-- Servicio afectado: `ms-reservas` (base `reservas_db`, puerto 5434).
-- Historias: US-11, US-14, US-15 y US-17. Prueba de concurrencia obligatoria.
+- Servicio afectado: `ms-reservas` (base `db_reservas`, puerto 5434).
+- Historias: US-11, US-14, US-15 y US-17; prueba de concurrencia obligatoria.
 - Fuera de alcance: pago y emisión de entradas (change `add-compra-con-pago`).

@@ -2,23 +2,25 @@
 
 ## 1. Modelo
 
-- [ ] 1.1 Entidades Orden, Entrada y Pago con estados y snapshots.
-- [ ] 1.2 Tabla de idempotencia con restricción única.
+- [ ] 1.1 Entidades Compra, Entrada y Pago con estados y snapshots de precio y fecha.
+- [ ] 1.2 Tabla de idempotencia con restricción única y hash del cuerpo.
 
 ## 2. Integraciones
 
-- [ ] 2.1 Cliente HTTP a ms-reservas (reservar, confirmar, liberar).
-- [ ] 2.2 Cliente HTTP a ms-eventos para datos del evento.
-- [ ] 2.3 Servicio de pago mock con los tres tokens.
+- [ ] 2.1 Cliente HTTP a ms-reservas (validar, confirmar, liberar).
+- [ ] 2.2 Cliente HTTP a ms-eventos para estado, precios y fecha del evento.
+- [ ] 2.3 Servicio de pasarela mock con los tres tokens.
 
-## 3. Saga
+## 3. Compra
 
-- [ ] 3.1 Orquestador de compra con compensaciones.
-- [ ] 3.2 Generación de código QR por entrada.
-- [ ] 3.3 Endpoints de consulta de órdenes y entradas.
+- [ ] 3.1 Endpoint POST /compras con Idempotency-Key obligatoria.
+- [ ] 3.2 Orquestación de la saga con compensaciones y reembolso.
+- [ ] 3.3 Emisión de entradas con QR único.
+- [ ] 3.4 Endpoints de consulta de compras y entradas del cliente.
 
 ## 4. Pruebas
 
-- [ ] 4.1 Tests de saga: pago rechazado, timeout y falla al confirmar.
-- [ ] 4.2 Test de idempotencia (mismo y distinto cuerpo).
+- [ ] 4.1 Tests de saga: pago aprobado, rechazado, timeout, reserva vencida antes y durante el cobro.
+- [ ] 4.2 Tests de idempotencia: repetición, cuerpo distinto, sin clave y solicitudes simultáneas.
 - [ ] 4.3 Test de flujo completo exitoso.
+- [ ] 4.4 Test de que otro cliente recibe 403.

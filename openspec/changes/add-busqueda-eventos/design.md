@@ -2,24 +2,30 @@
 
 ## Context
 
-La búsqueda vive en ms-eventos sobre su propia base. La disponibilidad no se replica: se consulta a ms-reservas por endpoint interno.
+La búsqueda vive en ms-eventos sobre su propia base. La disponibilidad no se replica: la informa ms-reservas.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Combinar filtros con AND y devolver resultados paginados.
-- Responder rápido con índices en fecha, categoría y estado.
+- Combinar filtros con AND y paginar de forma estable.
+- Que ms-eventos nunca lea tablas de ms-reservas.
 
 **Non-Goals:**
-- Motores externos de búsqueda.
-- Búsqueda geográfica.
+- Motores de búsqueda externos.
+- Caché del catálogo (E2).
 
 ## Decisions
 
-**Consulta dinámica.** Se arma la consulta con Specifications de JPA para combinar solo los filtros enviados.
+**Filtros.** tipo, organizadorId, participante, ciudad, fechaDesde, fechaHasta y q. Solo se consideran eventos PUBLICADO o AGOTADO.
 
-**Disponibilidad bajo demanda.** Para el filtro "solo con disponibilidad" se consulta a ms-reservas; si no responde, se devuelve el resultado sin ese dato y se marca como desconocido.
+**Texto q.** Se busca sin distinguir mayúsculas en nombre y descripción del evento, tipo y nombres de participantes.
+
+**Relevancia.** Primero coincidencia en el nombre, luego en participante y por último solo en la descripción. Sin q equivale a ordenar por fecha.
+
+**Orden estable.** Ante igual valor de orden se desempata por fecha y luego por id. El orden por precio usa el precio mínimo entre los sectores.
+
+**Consulta dinámica.** Se arma con Specifications de JPA para combinar solo los filtros enviados, con índices en estado, fecha y tipo.
 
 ## Risks / Trade-offs
 
-- Consultar disponibilidad por cada evento puede ser lento; se hace en lote para la página actual.
+- Los datos de lugar y participantes se consultan por joins en la base de eventos, que puede crecer; los índices previstos alcanzan para esta entrega.

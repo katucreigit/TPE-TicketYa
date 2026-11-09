@@ -2,29 +2,33 @@
 
 ## Context
 
-`ms-eventos` es el dueño del catálogo. Las demás piezas (reservas, ventas) consumen datos de eventos mediante endpoints internos y guardan snapshots cuando lo necesitan. Ver `docs/arquitectura.md` y `docs/modelo-datos.md`.
+`ms-eventos` es dueño del catálogo. Al publicar le pide a ms-reservas que inicialice el inventario; al suspender o cancelar le pide cerrarlo. Ver `docs/arquitectura.md` y `docs/modelo-datos.md`.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Que un ORGANIZADOR cree y publique eventos sobre lugares existentes.
-- Que las transiciones de estado inválidas se rechacen con 409.
-- Que el catálogo público solo muestre eventos PUBLICADO.
+- Un ORGANIZADOR crea y publica eventos solo sobre lugares existentes.
+- Transiciones de estado válidas; las inválidas responden 409.
+- La publicación es repetible sin duplicar el inventario.
 
 **Non-Goals:**
-- Autenticación real (JWT): queda para la Entrega 2; la identidad llega por headers.
-- Generación de asientos: la hace ms-reservas.
-- Búsqueda por filtros combinados.
+- Autenticación real (JWT): queda para la Entrega 2.
+- Generar asientos: lo hace ms-reservas.
+- Notificaciones a compradores (E2).
 
 ## Decisions
 
-**Identidad por headers.** En la Entrega 1 el rol llega en X-User-Rol (CLIENTE, ORGANIZADOR, ADMIN, ACCESO). El servicio valida el rol por endpoint y devuelve 403 si no corresponde.
+**Identidad por headers.** El rol llega en X-User-Rol y el usuario en X-User-Id. Sin headers válidos se responde 400; con rol incorrecto, 403. El organizador de un evento sale siempre de X-User-Id.
 
-**Estado SUSPENDIDO.** Se agrega SUSPENDIDO además de los estados del enunciado, con endpoints /suspender y /reanudar, para frenar ventas sin cancelar el evento.
+**Estados del evento.** BORRADOR, PUBLICADO, AGOTADO, SUSPENDIDO, CANCELADO y FINALIZADO. SUSPENDIDO se agrega al enunciado y es reversible con /reanudar.
 
-**Sectores numerados y generales.** Cada sector define si es numerado (filas y asientos) o de entrada general (solo cupo). Esto condiciona cómo ms-reservas controla el inventario.
+**Publicación.** Exige que todos los sectores vendibles tengan precio. Si ms-reservas no responde se devuelve 502 y el evento sigue en BORRADOR; la inicialización es idempotente, así que se puede reintentar.
+
+**Agotado.** Un evento está AGOTADO cuando no queda ningún lugar disponible para reservar, contando los reservados temporalmente. Vuelve a PUBLICADO cuando se libera alguno.
+
+**Precios.** Se guardan como NUMERIC/BigDecimal, nunca como punto flotante.
 
 ## Risks / Trade-offs
 
-- Un evento publicado con datos incompletos genera problemas aguas abajo; se valida antes de publicar.
-- Cambiar la fecha de un evento con entradas vendidas afecta la regla de las 72 h; ms-ventas guarda un snapshot de la fecha.
+- Cambiar la fecha de un evento con entradas vendidas afecta la regla de 72 horas; ms-ventas usa un snapshot de la fecha tomado al comprar.
+- El aviso de agotado depende de ms-reservas; si se pierde, el evento figura PUBLICADO aunque no haya lugares.

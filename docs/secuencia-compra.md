@@ -25,4 +25,5 @@ Compra de una entrada **numerada**. Actores: Cliente, API Gateway, ms-eventos, m
 | Reserva vencida (o venció durante el cobro, con reembolso) | ms-ventas | `410` |
 | Reintento con la misma `Idempotency-Key` | ms-ventas | respuesta original |
 | Misma clave con otro cuerpo | ms-ventas | `422` |
-| Pasarela de pagos no disponible | ms-ventas | `502` o `504` |
+| Pasarela sin respuesta tras enviar el cobro | ms-ventas | `504` (compra `PENDIENTE`, se reintenta con la misma clave) |
+| Pasarela inalcanzable, el cobro no se envió | ms-ventas | `502` o `503` (compra `PENDIENTE`) |

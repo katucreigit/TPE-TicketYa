@@ -1,0 +1,24 @@
+schema: spec-driven
+
+context: |
+  Language: es
+  All artifacts must be written in es.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Proyecto: TicketYa, venta de entradas para eventos (TPE Arquitectura Web, TUDAI), Entrega 1.
+  Stack: Java 21, Spring Boot 3.5, Maven, JPA, PostgreSQL 16, Spring Cloud Gateway.
+  Servicios: api-gateway, ms-eventos, ms-reservas, ms-ventas (una base por servicio).
+  Documentación de referencia: docs/user-stories.md, docs/arquitectura.md,
+  docs/modelo-datos.md, docs/secuencia-compra.md y docs/openapi.yaml.
+  Alcance: solo Entrega 1. La autenticación real queda para la Entrega 2.
+
+rules:
+  proposal:
+    - Indicar explícitamente lo que queda fuera de alcance.
+  specs:
+    - Redactar los requisitos en notación EARS (Cuando / Mientras / Si ... entonces el sistema SHALL ...).
+    - Cada requisito debe tener al menos un escenario WHEN/THEN.
+  design:
+    - Referenciar los documentos de docs/ en lugar de repetirlos.
+  tasks:
+    - Incluir tareas de pruebas (unitarias y, donde aplique, de concurrencia).

@@ -1,0 +1,11 @@
+target/
+.idea/
+*.iml
+.vscode/
+.claude/
+*.log
+.env
+.m2repo/
+HELP.md
+.DS_Store
+node_modules/

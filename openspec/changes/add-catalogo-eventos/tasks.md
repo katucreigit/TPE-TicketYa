@@ -13,6 +13,7 @@
 - [ ] 2.3 Edición de datos y configuración de precios por sector en BORRADOR.
 - [ ] 2.4 Campo maxEntradasPorCliente (mínimo 1, por defecto 4) en alta y edición, y envío del valor a ms-reservas al publicar.
 - [ ] 2.5 Publicación: validar precios, llamar a ms-reservas y manejar el 502.
+- [ ] 2.6 Si ms-reservas responde 409 al crear el inventario, tratarlo como ya inicializado y completar la publicación (reintento seguro).
 
 ## 3. Estados
 

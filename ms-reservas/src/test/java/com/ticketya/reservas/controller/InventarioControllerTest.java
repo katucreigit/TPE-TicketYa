@@ -1,5 +1,6 @@
 package com.ticketya.reservas.controller;
 
+import com.jayway.jsonpath.JsonPath;
 import com.ticketya.reservas.TestcontainersConfiguration;
 import com.ticketya.reservas.client.EventosClient;
 import com.ticketya.reservas.model.Reserva;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -63,6 +65,9 @@ class InventarioControllerTest {
               {"sectorId": 11, "tipo": "NUMERADO", "filas": 20, "asientosPorFila": 30},
               {"sectorId": 12, "tipo": "NO_NUMERADO", "capacidad": 5000}
             ]}""";
+
+    private static final String UN_LUGAR_DE_CAMPO = """
+            {"eventoId": 42, "sectorId": 12, "cantidad": 1}""";
 
     @Autowired
     private MockMvc mvc;
@@ -388,6 +393,22 @@ class InventarioControllerTest {
         }
 
         @Test
+        void trasLaReaperturaLasNuevasReservasSeAceptanDeNuevo() throws Exception {
+            crearInventario(INVENTARIO_42).andExpect(status().isCreated());
+            mvc.perform(post("/internal/eventos/42/cerrar")).andExpect(status().isOk());
+            reservarHttp("101", UN_LUGAR_DE_CAMPO)
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("EVENTO_NO_DISPONIBLE"));
+
+            mvc.perform(post("/internal/eventos/42/abrir")).andExpect(status().isOk());
+
+            reservarHttp("101", UN_LUGAR_DE_CAMPO)
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.estado").value("PENDIENTE"));
+            assertThat(contar("SELECT disponibles FROM inventario_sector WHERE sector_id = 12")).isEqualTo(4999);
+        }
+
+        @Test
         void reaperturaDeUnEventoSinLugaresAvisaAgotadoDespuesDelCommit() throws Exception {
             crearInventarioDeUnLugar();
             agotarUnicoLugar();
@@ -474,6 +495,42 @@ class InventarioControllerTest {
         }
 
         @Test
+        void reservarElUltimoLugarAvisaAgotadoYCancelarloAvisaQueVuelveAHaber() throws Exception {
+            crearInventarioDeUnLugar();
+
+            String body = reservarHttp("101", UN_LUGAR_DE_CAMPO).andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+            verify(eventosClient).actualizarDisponibilidad(EVENTO, true);
+            assertThat(agotadoNotificado()).isTrue();
+
+            String reservaId = JsonPath.read(body, "$.reservaId");
+            mvc.perform(delete("/reservas/" + reservaId).header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isNoContent());
+            verify(eventosClient).actualizarDisponibilidad(EVENTO, false);
+            assertThat(agotadoNotificado()).isFalse();
+        }
+
+        @Test
+        void siFallaElAvisoAlReservarLaReservaSeConservaYElJobLoReintenta() throws Exception {
+            crearInventarioDeUnLugar();
+            doThrow(new ResourceAccessException("ms-eventos no responde"))
+                    .doNothing()
+                    .when(eventosClient).actualizarDisponibilidad(EVENTO, true);
+
+            String body = reservarHttp("101", UN_LUGAR_DE_CAMPO).andExpect(status().isCreated())
+                    .andReturn().getResponse().getContentAsString();
+
+            assertThat(estadoReserva(UUID.fromString(JsonPath.read(body, "$.reservaId")))).isEqualTo("PENDIENTE");
+            assertThat(contar("SELECT disponibles FROM inventario_sector WHERE sector_id = 12")).isZero();
+            assertThat(agotadoNotificado()).as("el campo no se actualiza si el aviso falla").isNull();
+
+            vencimientoJob.ejecutar();
+
+            verify(eventosClient, times(2)).actualizarDisponibilidad(EVENTO, true);
+            assertThat(agotadoNotificado()).isTrue();
+        }
+
+        @Test
         void avisoSeMandaDespuesDelCommitYNoSiLaTransaccionSeRevierte() {
             crearInventarioDeUnLugarSinHttp();
             doNothing().when(eventosClient).actualizarDisponibilidad(anyLong(), anyBoolean());
@@ -499,6 +556,11 @@ class InventarioControllerTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private ResultActions reservarHttp(String clienteId, String json) throws Exception {
+        return mvc.perform(post("/reservas").header("X-User-Id", clienteId).header("X-User-Rol", "CLIENTE")
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
 
     private ResultActions crearInventario(String json) throws Exception {
         return mvc.perform(post("/internal/inventarios").contentType(MediaType.APPLICATION_JSON).content(json));

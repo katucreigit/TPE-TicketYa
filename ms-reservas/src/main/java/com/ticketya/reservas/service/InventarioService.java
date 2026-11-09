@@ -14,7 +14,9 @@ import com.ticketya.reservas.repository.InventarioSectorRepository;
 import com.ticketya.reservas.repository.ReservaRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -35,13 +37,16 @@ public class InventarioService {
     private final ReservaRepository reservaRepository;
     private final AvisoAgotadoService avisoAgotadoService;
     private final int maxPorClienteDefault;
+    private final TransactionTemplate transaccion;
 
     public InventarioService(InventarioEventoRepository inventarioEventoRepository,
                              InventarioSectorRepository inventarioSectorRepository,
                              AsientoRepository asientoRepository,
                              ReservaRepository reservaRepository,
                              AvisoAgotadoService avisoAgotadoService,
+                             PlatformTransactionManager transactionManager,
                              @Value("${ticketya.reserva.max-por-cliente-default:4}") int maxPorClienteDefault) {
+        this.transaccion = new TransactionTemplate(transactionManager);
         this.inventarioEventoRepository = inventarioEventoRepository;
         this.inventarioSectorRepository = inventarioSectorRepository;
         this.asientoRepository = asientoRepository;
@@ -135,12 +140,17 @@ public class InventarioService {
         inventarioSectorRepository.devolverCupoDeReservas(pendientes);
     }
 
-    /** Reabre el inventario (reanudacion) y, tras el commit, avisa a ms-eventos si el evento esta agotado. */
-    @Transactional
+    /**
+     * Reabre el inventario (reanudacion) y, tras el commit, avisa a ms-eventos si el evento esta agotado.
+     * El aviso se evalua al salir de la transaccion para no retener su conexion mientras abre otra
+     * (mismo patron que ReservaService). Con una transaccion externa, evaluarDespuesDelCommit espera a su commit.
+     */
     public void abrir(Long eventoId) {
-        if (inventarioEventoRepository.abrir(eventoId) == 0) {
-            throw CodigoError.noEncontrado("El evento " + eventoId + " no tiene inventario");
-        }
+        transaccion.executeWithoutResult(s -> {
+            if (inventarioEventoRepository.abrir(eventoId) == 0) {
+                throw CodigoError.noEncontrado("El evento " + eventoId + " no tiene inventario");
+            }
+        });
         avisoAgotadoService.evaluarDespuesDelCommit(eventoId);
     }
 

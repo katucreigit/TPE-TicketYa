@@ -43,6 +43,8 @@ La garantía se resuelve en la base de datos, no en memoria, para que valga con 
 
 **Fechas sin reloj de la JVM.** Las columnas son timestamp sin zona y las entidades usan LocalDateTime. Al crear una reserva se lee `SELECT localtimestamp` en la misma transacción y con ese valor se fijan creadaEn y expiraEn (+10 minutos); no se usa `LocalDateTime.now()`. Las comparaciones usan `localtimestamp` en SQL.
 
+**Huso horario de la sesión.** La sesión de PostgreSQL se fija en UTC al abrir cada conexión del pool (`spring.datasource.hikari.connection-init-sql: SET TIME ZONE 'UTC'`) y se mantiene `hibernate.jdbc.time_zone: UTC`. Así `localtimestamp` y las columnas timestamp están en UTC, con el mismo valor sin importar el huso de cada instancia, y Hibernate entrega esas horas a Java (y la API las expone) en el huso de la JVM. Antes la sesión tomaba el huso de la JVM mientras Hibernate trataba las fechas como UTC: la base quedaba correcta porque los dos corrimientos se cancelaban, pero `expiraEn` salía en la API desplazado por el offset de la JVM (3 horas en Argentina). Lo verifican `HusoHorarioSesionTest` y la prueba de la respuesta 201 en `ReservaControllerTest`.
+
 **Errores.** Se lanza ApiException con el código del contrato (ASIENTO_NO_DISPONIBLE, CUPO_INSUFICIENTE, EVENTO_NO_DISPONIBLE, LIMITE_POR_CLIENTE, RESERVA_CONFIRMADA, RESERVA_VENCIDA, ACCESO_DENEGADO, NO_ENCONTRADO). Un DataIntegrityViolationException o un fallo de @Version se traduce a 409 por el handler global, pero el flujo normal no debe depender de eso.
 
 ## Risks / Trade-offs

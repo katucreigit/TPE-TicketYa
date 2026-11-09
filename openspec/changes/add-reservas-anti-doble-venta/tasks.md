@@ -26,11 +26,11 @@
 
 ## 3. Pruebas
 
-- [ ] 3.1 Tests unitarios de las reglas de reserva, del límite y de los códigos de error.
-- [ ] 3.2 Test de concurrencia con Testcontainers: 50 hilos reservan el mismo asiento y exactamente uno recibe 201; el resto, 409.
-- [ ] 3.3 Test de concurrencia: 20 hilos piden el último cupo de un sector no numerado; exactamente uno lo obtiene y disponibles nunca es negativo.
-- [ ] 3.4 Test de dos reservas simultáneas del mismo cliente que juntas superan el límite: a lo sumo una tiene éxito.
-- [ ] 3.5 Test de carrera entre confirmar y vencer sobre la misma reserva: solo una operación se aplica.
-- [ ] 3.6 Test de todo o nada: una reserva con un asiento ocupado no deja ningún asiento reservado.
-- [ ] 3.7 Test del job de vencimiento invocado directamente, incluida la devolución del cupo en sectores no numerados.
-- [ ] 3.8 Tests de controlador para 201, 204, 400, 403, 404, 409, 410 y 422.
+- [x] 3.1 Tests unitarios de las reglas de reserva, del límite y de los códigos de error.
+- [x] 3.2 Test de concurrencia con Testcontainers: 50 hilos reservan el mismo asiento y exactamente uno recibe 201; el resto, 409.
+- [x] 3.3 Test de concurrencia: 20 hilos piden el último cupo de un sector no numerado; exactamente uno lo obtiene y disponibles nunca es negativo.
+- [x] 3.4 Test de dos reservas simultáneas del mismo cliente que juntas superan el límite: a lo sumo una tiene éxito.
+- [x] 3.5 Test de carrera entre confirmar y vencer sobre la misma reserva: solo una operación se aplica.
+- [x] 3.6 Test de todo o nada: una reserva con un asiento ocupado no deja ningún asiento reservado.
+- [x] 3.7 Test del job de vencimiento invocado directamente, incluida la devolución del cupo en sectores no numerados.
+- [x] 3.8 Tests de controlador para 201, 204, 400, 403, 404, 409, 410 y 422.

@@ -21,6 +21,8 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -179,6 +181,61 @@ class ReservaControllerTest {
         }
 
         @Test
+        void sectorInexistenteEnUnEventoConInventarioResponde404() throws Exception {
+            reservar("101", """
+                    {"eventoId": 42, "sectorId": 99, "cantidad": 1}""")
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("NO_ENCONTRADO"));
+        }
+
+        @Test
+        void cuerposInvalidosResponden400() throws Exception {
+            reservar("101", """
+                    {"eventoId": 42, "sectorId": 12}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            reservar("101", """
+                    {"eventoId": 42, "sectorId": 11, "asientos": [{"fila": 1, "numero": 1}], "cantidad": 1}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            reservar("101", """
+                    {"sectorId": 12, "cantidad": 1}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            reservar("101", "{\"eventoId\": 42, ")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+
+            assertThat(contar("SELECT count(*) FROM reserva")).isZero();
+        }
+
+        @Test
+        void laRespuesta201TieneLosCamposDelContratoYExpiraEnDeLaBase() throws Exception {
+            JsonNode body = leer(reservar("101", cantidad(2))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.eventoId").value(42))
+                    .andExpect(jsonPath("$.sectorId").value(12))
+                    .andExpect(jsonPath("$.estado").value("PENDIENTE"))
+                    .andExpect(jsonPath("$.cantidad").value(2)));
+
+            UUID id = UUID.fromString(body.get("reservaId").asText());
+            LocalDateTime expiraEnApi = LocalDateTime.parse(body.get("expiraEn").asText());
+            ZoneId husoJvm = ZoneId.systemDefault();
+
+            // La base guarda UTC (sesion en UTC); la API expone el mismo instante en el huso de la JVM.
+            OffsetDateTime expiraEnBase = jdbc.queryForObject(
+                    "SELECT expira_en AT TIME ZONE 'UTC' FROM reserva WHERE id = ?", OffsetDateTime.class, id);
+            assertThat(expiraEnApi).as("misma hora que la base, convertida al mismo huso")
+                    .isEqualTo(LocalDateTime.ofInstant(expiraEnBase.toInstant(), husoJvm));
+
+            // Creacion + 10 minutos, calculado en la base.
+            assertThat(jdbc.queryForObject("SELECT expira_en - creada_en = interval '10 minutes' FROM reserva WHERE id = ?",
+                    Boolean.class, id)).isTrue();
+
+            // Coherente con el reloj de la base: expiraEn es ahora (segun la base) mas 10 minutos.
+            OffsetDateTime ahoraBase = jdbc.queryForObject("SELECT now()", OffsetDateTime.class);
+            LocalDateTime esperado = LocalDateTime.ofInstant(ahoraBase.toInstant(), husoJvm).plusMinutes(10);
+            assertThat(Duration.between(expiraEnApi, esperado).abs())
+                    .as("sin corrimiento de huso entre la API y la base").isLessThan(Duration.ofSeconds(30));
+        }
+
+        @Test
         void rolDistintoDeClienteResponde403YSinHeadersResponde400() throws Exception {
             mvc.perform(post("/reservas").header("X-User-Id", "7").header("X-User-Rol", "ORGANIZADOR")
                             .contentType(MediaType.APPLICATION_JSON).content(cantidad(1)))
@@ -207,6 +264,50 @@ class ReservaControllerTest {
                     .andExpect(status().isForbidden());
             mvc.perform(get("/reservas/" + UUID.randomUUID()).header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
                     .andExpect(status().isNotFound());
+        }
+
+        @Test
+        void consultaYCancelacionExigenRolClienteHeadersEIdValido() throws Exception {
+            UUID id = idDe(reservar("101", cantidad(1)).andExpect(status().isCreated()));
+
+            mvc.perform(get("/reservas/" + id).header("X-User-Id", "101").header("X-User-Rol", "ORGANIZADOR"))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+            mvc.perform(delete("/reservas/" + id).header("X-User-Id", "101").header("X-User-Rol", "ADMIN"))
+                    .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+            mvc.perform(get("/reservas/" + id))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            mvc.perform(delete("/reservas/" + id).header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            mvc.perform(get("/reservas/no-es-uuid").header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+
+            assertThat(estado(id)).isEqualTo("PENDIENTE");
+        }
+
+        @Test
+        void consultaDeReservaNoNumeradaDevuelveCantidadVencimientoYSinItems() throws Exception {
+            UUID id = idDe(reservar("101", cantidad(3)).andExpect(status().isCreated()));
+
+            mvc.perform(get("/reservas/" + id).header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.reservaId").value(id.toString()))
+                    .andExpect(jsonPath("$.estado").value("PENDIENTE"))
+                    .andExpect(jsonPath("$.cantidad").value(3))
+                    .andExpect(jsonPath("$.items.length()").value(0))
+                    .andExpect(jsonPath("$.expiraEn").isNotEmpty());
+        }
+
+        @Test
+        void cancelarUnaReservaVencidaResponde204SinDevolverElCupoOtraVez() throws Exception {
+            UUID id = idDe(reservar("101", cantidad(3)).andExpect(status().isCreated()));
+            expirar(id);
+            vencimientoJob.ejecutar();
+            assertThat(disponiblesCampo()).isEqualTo(10);
+
+            cancelar("101", id).andExpect(status().isNoContent());
+
+            assertThat(estado(id)).isEqualTo("VENCIDA");
+            assertThat(disponiblesCampo()).isEqualTo(10);
         }
 
         @Test
@@ -266,6 +367,70 @@ class ReservaControllerTest {
             confirmar(liberada).andExpect(status().isConflict());
 
             confirmar(UUID.randomUUID()).andExpect(status().isNotFound());
+        }
+
+        @Test
+        void confirmarUnaReservaLiberadaPorElCierreDelEventoResponde409() throws Exception {
+            UUID id = idDe(reservar("101", asientos(2, 2)).andExpect(status().isCreated()));
+            mvc.perform(post("/internal/eventos/42/cerrar")).andExpect(status().isOk());
+
+            confirmar(id).andExpect(status().isConflict());
+
+            assertThat(estado(id)).isEqualTo("LIBERADA");
+            assertThat(contar("SELECT count(*) FROM asiento WHERE estado <> 'LIBRE'")).isZero();
+        }
+
+        @Test
+        void confirmarUnaReservaYaVencidaPorElJobResponde410() throws Exception {
+            UUID id = idDe(reservar("101", asientos(2, 3)).andExpect(status().isCreated()));
+            expirar(id);
+            vencimientoJob.ejecutar();
+
+            confirmar(id).andExpect(status().isGone()).andExpect(jsonPath("$.code").value("RESERVA_VENCIDA"));
+
+            assertThat(contar("SELECT count(*) FROM asiento WHERE estado = 'VENDIDO'")).isZero();
+        }
+
+        @Test
+        void liberarUnaVencidaResponde200SinCambiosYLiberarUnaNumeradaDevuelveSusAsientos() throws Exception {
+            UUID vencida = idDe(reservar("101", cantidad(3)).andExpect(status().isCreated()));
+            expirar(vencida);
+            vencimientoJob.ejecutar();
+            mvc.perform(post("/internal/reservas/" + vencida + "/liberar")).andExpect(status().isOk());
+            assertThat(estado(vencida)).isEqualTo("VENCIDA");
+            assertThat(disponiblesCampo()).isEqualTo(10);
+
+            UUID numerada = idDe(reservar("102", """
+                    {"eventoId": 42, "sectorId": 11, "asientos": [{"fila": 4, "numero": 1}, {"fila": 4, "numero": 2}]}""")
+                    .andExpect(status().isCreated()));
+            mvc.perform(post("/internal/reservas/" + numerada + "/liberar")).andExpect(status().isOk());
+            assertThat(estado(numerada)).isEqualTo("LIBERADA");
+            assertThat(contar("SELECT count(*) FROM asiento WHERE estado <> 'LIBRE' OR reserva_id IS NOT NULL")).isZero();
+        }
+
+        @Test
+        void devolverConCuerpoInvalidoResponde400SinCambios() throws Exception {
+            UUID numerada = idDe(reservar("101", asientos(1, 1)).andExpect(status().isCreated()));
+            UUID campo = idDe(reservar("102", cantidad(2)).andExpect(status().isCreated()));
+            confirmar(numerada).andExpect(status().isOk());
+            confirmar(campo).andExpect(status().isOk());
+
+            devolver(numerada, """
+                    {"items": [{"fila": 1, "numero": 1}], "cantidad": 1}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            devolver(numerada, """
+                    {"cantidad": 1}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            devolver(campo, """
+                    {"items": [{"fila": 1, "numero": 1}]}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+            devolver(campo, """
+                    {"cantidad": 0}""")
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("VALIDACION"));
+
+            assertThat(contar("SELECT count(*) FROM asiento WHERE estado = 'VENDIDO'")).isEqualTo(1);
+            assertThat(disponiblesCampo()).isEqualTo(8);
+            assertThat(contar("SELECT SUM(cantidad) FROM reserva")).isEqualTo(3);
         }
 
         @Test

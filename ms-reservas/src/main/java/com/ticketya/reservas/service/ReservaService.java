@@ -19,13 +19,13 @@ import com.ticketya.reservas.repository.ReservaRepository;
 import com.ticketya.reservas.repository.projection.InventarioReservaView;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -34,6 +34,12 @@ import java.util.UUID;
  * Toda la concurrencia se resuelve en PostgreSQL: advisory lock por cliente y evento para el limite,
  * UPDATE condicionales por estado para los lugares y transiciones de la reserva, y FOR UPDATE SKIP LOCKED
  * en el vencimiento. Las fechas salen siempre de la base (localtimestamp), nunca del reloj de la JVM.
+ * <p>
+ * Las operaciones que cambian los lugares libres (crear, cancelar, liberar, devolver) abren su transaccion con
+ * {@link TransactionTemplate} y evaluan el aviso de agotado recien al salir de ella. El aviso abre otra
+ * transaccion: si se evaluara en afterCommit, cada solicitud retendria su conexion mientras pide una segunda, y
+ * una rafaga de reservas igual al tamano del pool lo agotaria (todas esperando hasta el timeout de Hikari).
+ * Si hay una transaccion externa, {@code evaluarDespuesDelCommit} igual espera a su commit.
  */
 @Service
 public class ReservaService {
@@ -46,6 +52,7 @@ public class ReservaService {
     private final AvisoAgotadoService avisoAgotadoService;
     private final int minutosExpiracion;
     private final int loteVencimiento;
+    private final TransactionTemplate transaccion;
 
     public ReservaService(ReservaRepository reservaRepository,
                           ReservaItemRepository reservaItemRepository,
@@ -53,8 +60,10 @@ public class ReservaService {
                           InventarioEventoRepository inventarioEventoRepository,
                           InventarioSectorRepository inventarioSectorRepository,
                           AvisoAgotadoService avisoAgotadoService,
+                          PlatformTransactionManager transactionManager,
                           @Value("${ticketya.reserva.minutos-expiracion:10}") int minutosExpiracion,
                           @Value("${ticketya.jobs.lote-vencimiento:100}") int loteVencimiento) {
+        this.transaccion = new TransactionTemplate(transactionManager);
         this.reservaRepository = reservaRepository;
         this.reservaItemRepository = reservaItemRepository;
         this.asientoRepository = asientoRepository;
@@ -73,9 +82,14 @@ public class ReservaService {
      * (4) UPDATE condicionales de asientos ordenados por fila y numero, o resta atomica del cupo.
      * Cualquier excepcion revierte la transaccion completa: no queda ningun lugar tomado.
      */
-    @Transactional
     public ReservaResponse crear(String clienteId, ReservaRequest request) {
-        boolean pideAsientos = validarPedido(request);
+        ReservaResponse respuesta = transaccion.execute(s -> crearEnTransaccion(clienteId, request));
+        avisoAgotadoService.evaluarDespuesDelCommit(request.eventoId());
+        return respuesta;
+    }
+
+    private ReservaResponse crearEnTransaccion(String clienteId, ReservaRequest request) {
+        boolean pideAsientos = ReglasReserva.validarPedido(request);
         Long eventoId = request.eventoId();
         Long sectorId = request.sectorId();
 
@@ -91,14 +105,12 @@ public class ReservaService {
         InventarioSector sector = inventarioSectorRepository.findByInventarioEventoEventoIdAndSectorId(eventoId, sectorId)
                 .orElseThrow(() -> CodigoError.noEncontrado(
                         "El sector " + sectorId + " no existe en el inventario del evento " + eventoId));
-        validarTipoDeSector(sector.getTipo(), pideAsientos);
+        ReglasReserva.validarTipoDeSector(sector.getTipo(), pideAsientos);
         int pedidos = pideAsientos ? request.asientos().size() : request.cantidad();
 
         // (3) Limite por cliente: PENDIENTE no vencidas y CONFIRMADA (sin unidades devueltas).
         long contadas = reservaRepository.unidadesContadas(eventoId, clienteId);
-        if (contadas + pedidos > inventario.getMaxPorCliente()) {
-            throw CodigoError.limitePorCliente(inventario.getMaxPorCliente(), contadas);
-        }
+        ReglasReserva.verificarLimite(contadas, pedidos, inventario.getMaxPorCliente());
 
         // (4) Reservar. Una sola lectura de la hora de la base para creadaEn y expiraEn.
         LocalDateTime ahora = reservaRepository.ahora();
@@ -115,8 +127,6 @@ public class ReservaService {
         List<AsientoRef> items = pideAsientos
                 ? reservarAsientos(reserva, request.asientos())
                 : reservarCupo(reserva, request.cantidad());
-
-        avisoAgotadoService.evaluarDespuesDelCommit(eventoId);
         return respuesta(reserva, items);
     }
 
@@ -126,7 +136,7 @@ public class ReservaService {
      * la excepcion y se revierte todo.
      */
     private List<AsientoRef> reservarAsientos(Reserva reserva, List<AsientoRef> pedidos) {
-        List<AsientoRef> ordenados = pedidos.stream().sorted(AsientoRef.POR_FILA_Y_NUMERO).toList();
+        List<AsientoRef> ordenados = ReglasReserva.ordenados(pedidos);
         List<AsientoRef> fallidos = new ArrayList<>();
         for (AsientoRef a : ordenados) {
             int filas = asientoRepository.reservar(reserva.getEventoId(), reserva.getSectorId(),
@@ -167,46 +177,6 @@ public class ReservaService {
         return List.of();
     }
 
-    /** Validaciones que no dependen de la base. Devuelve true si el pedido trae asientos. */
-    private static boolean validarPedido(ReservaRequest request) {
-        boolean conAsientos = request.asientos() != null && !request.asientos().isEmpty();
-        boolean conCantidad = request.cantidad() != null;
-        if (conAsientos == conCantidad) {
-            throw CodigoError.validacion("Datos invalidos",
-                    List.of("Debe enviarse asientos (sector numerado) o cantidad (sector no numerado), no ambos"));
-        }
-        if (conCantidad && request.cantidad() <= 0) {
-            throw CodigoError.validacion("Datos invalidos", List.of("cantidad debe ser mayor a 0"));
-        }
-        if (conAsientos) {
-            validarSinRepetidos(request.asientos(), "asientos");
-        }
-        return conAsientos;
-    }
-
-    private static void validarTipoDeSector(TipoSector tipo, boolean conAsientos) {
-        if (tipo == TipoSector.NUMERADO && !conAsientos) {
-            throw CodigoError.validacion("Datos invalidos",
-                    List.of("El sector es numerado: se deben enviar asientos, no cantidad"));
-        }
-        if (tipo == TipoSector.NO_NUMERADO && conAsientos) {
-            throw CodigoError.validacion("Datos invalidos",
-                    List.of("El sector no es numerado: se debe enviar cantidad, no asientos"));
-        }
-    }
-
-    private static void validarSinRepetidos(List<AsientoRef> asientos, String campo) {
-        Set<AsientoRef> vistos = new HashSet<>();
-        List<String> repetidos = asientos.stream()
-                .filter(a -> !vistos.add(a))
-                .map(a -> campo + " repite el asiento " + CodigoError.asiento(a.fila(), a.numero()))
-                .distinct()
-                .toList();
-        if (!repetidos.isEmpty()) {
-            throw CodigoError.validacion("Datos invalidos", repetidos);
-        }
-    }
-
     // ------------------------------------------------------------------ consulta y cancelacion
 
     @Transactional(readOnly = true)
@@ -222,15 +192,12 @@ public class ReservaService {
      * Cancelacion del cliente: PENDIENTE pasa a LIBERADA y sus lugares vuelven. Ya LIBERADA o VENCIDA no
      * modifica nada (204). CONFIRMADA responde 409 RESERVA_CONFIRMADA.
      */
-    @Transactional
     public void cancelar(String clienteId, UUID id) {
-        Reserva reserva = buscarDelCliente(clienteId, id);
-        if (liberarSiPendiente(reserva.getId(), reserva.getEventoId())) {
-            return;
-        }
-        if (estadoActual(id) == EstadoReserva.CONFIRMADA) {
-            throw CodigoError.reservaConfirmada();
-        }
+        Long eventoAfectado = transaccion.execute(s -> {
+            Reserva reserva = buscarDelCliente(clienteId, id);
+            return liberarPendienteOFallarSiConfirmada(reserva);
+        });
+        avisarSiCambio(eventoAfectado);
     }
 
     private Reserva buscarDelCliente(String clienteId, UUID id) {
@@ -268,16 +235,27 @@ public class ReservaService {
      * Liberacion por compensacion: PENDIENTE pasa a LIBERADA y sus lugares vuelven. Ya LIBERADA o VENCIDA
      * responde 200 sin cambios; CONFIRMADA, 409.
      */
-    @Transactional
     public void liberar(UUID id) {
-        Reserva reserva = reservaRepository.findById(id)
-                .orElseThrow(() -> CodigoError.noEncontrado("La reserva " + id + " no existe"));
-        if (liberarSiPendiente(id, reserva.getEventoId())) {
-            return;
+        Long eventoAfectado = transaccion.execute(s -> {
+            Reserva reserva = reservaRepository.findById(id)
+                    .orElseThrow(() -> CodigoError.noEncontrado("La reserva " + id + " no existe"));
+            return liberarPendienteOFallarSiConfirmada(reserva);
+        });
+        avisarSiCambio(eventoAfectado);
+    }
+
+    /**
+     * PENDIENTE pasa a LIBERADA y devuelve el evento afectado. Ya LIBERADA o VENCIDA devuelve null (sin cambios).
+     * CONFIRMADA lanza 409 RESERVA_CONFIRMADA.
+     */
+    private Long liberarPendienteOFallarSiConfirmada(Reserva reserva) {
+        if (liberarSiPendiente(reserva.getId())) {
+            return reserva.getEventoId();
         }
-        if (estadoActual(id) == EstadoReserva.CONFIRMADA) {
+        if (estadoActual(reserva.getId()) == EstadoReserva.CONFIRMADA) {
             throw CodigoError.reservaConfirmada();
         }
+        return null;
     }
 
     /**
@@ -285,8 +263,12 @@ public class ReservaService {
      * con cantidad 0 y se descuenta de la reserva; un asiento ya devuelto se ignora y uno ajeno responde 409.
      * No numerados: se suma al cupo y se descuenta de la reserva sin superar lo comprado.
      */
-    @Transactional
     public void devolver(UUID id, DevolucionRequest request) {
+        avisarSiCambio(transaccion.execute(s -> devolverEnTransaccion(id, request)));
+    }
+
+    /** Devuelve el evento afectado si se libero algun lugar, o null si fue una repeticion sin cambios. */
+    private Long devolverEnTransaccion(UUID id, DevolucionRequest request) {
         // Lock de la reserva: serializa devoluciones simultaneas sobre la misma reserva.
         EstadoReserva estado = reservaRepository.bloquearEstado(id)
                 .map(EstadoReserva::valueOf)
@@ -306,20 +288,18 @@ public class ReservaService {
             throw CodigoError.validacion("Datos invalidos",
                     List.of("Debe enviarse items (sector numerado) o cantidad (sector no numerado), no ambos"));
         }
-        validarTipoDeSector(tipo, conItems);
+        ReglasReserva.validarTipoDeSector(tipo, conItems);
 
         boolean cambio = conItems
                 ? devolverAsientos(reserva, request.items())
                 : devolverCupo(reserva, request.cantidad());
-        if (cambio) {
-            avisoAgotadoService.evaluarDespuesDelCommit(reserva.getEventoId());
-        }
+        return cambio ? reserva.getEventoId() : null;
     }
 
     private boolean devolverAsientos(Reserva reserva, List<AsientoRef> items) {
-        validarSinRepetidos(items, "items");
+        ReglasReserva.validarSinRepetidos(items, "items");
         UUID id = reserva.getId();
-        List<AsientoRef> ordenados = items.stream().sorted(AsientoRef.POR_FILA_Y_NUMERO).toList();
+        List<AsientoRef> ordenados = ReglasReserva.ordenados(items);
         List<String> ajenos = new ArrayList<>();
         int devueltos = 0;
         for (AsientoRef a : ordenados) {
@@ -350,9 +330,7 @@ public class ReservaService {
     }
 
     private boolean devolverCupo(Reserva reserva, int cantidad) {
-        if (cantidad <= 0) {
-            throw CodigoError.validacion("Datos invalidos", List.of("cantidad debe ser mayor a 0"));
-        }
+        ReglasReserva.validarCantidad(cantidad);
         UUID id = reserva.getId();
         if (reservaRepository.descontarCantidad(id, cantidad) == 0
                 || reservaItemRepository.descontarCupoDevuelto(id, cantidad) == 0) {
@@ -390,15 +368,21 @@ public class ReservaService {
     // ------------------------------------------------------------------ auxiliares
 
     /** UPDATE condicional PENDIENTE -> LIBERADA; solo si aplico se devuelven los lugares. */
-    private boolean liberarSiPendiente(UUID id, Long eventoId) {
+    private boolean liberarSiPendiente(UUID id) {
         List<UUID> ids = List.of(id);
         if (reservaRepository.liberar(ids) == 0) {
             return false;
         }
         asientoRepository.liberarDeReservas(ids);
         inventarioSectorRepository.devolverCupoDeReservas(ids);
-        avisoAgotadoService.evaluarDespuesDelCommit(eventoId);
         return true;
+    }
+
+    /** Se llama fuera de la transaccion de la operacion, ya sin conexion retenida. */
+    private void avisarSiCambio(Long eventoAfectado) {
+        if (eventoAfectado != null) {
+            avisoAgotadoService.evaluarDespuesDelCommit(eventoAfectado);
+        }
     }
 
     /** Estado leido de la base despues de un UPDATE condicional que no aplico. */

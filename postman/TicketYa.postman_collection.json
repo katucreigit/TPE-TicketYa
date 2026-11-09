@@ -1,0 +1,2235 @@
+{
+  "info": {
+    "name": "TicketYa",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Entrega 1. Gateway en {{baseUrl}}. Con los servicios corriendo, ejecutar la carpeta \"Flujo completo\" en orden (Run). La carpeta \"Casos de error\" se corre despues del flujo. Las variables (ids) se completan solas."
+  },
+  "item": [
+    {
+      "name": "Flujo completo (en orden)",
+      "item": [
+        {
+          "name": "1. Crear lugar (ORGANIZADOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lugares",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Estadio Ciudad de Tandil\",\n  \"direccion\": \"Av. Don Bosco 1200\",\n  \"ciudad\": \"Tandil\",\n  \"latitud\": -37.3217,\n  \"longitud\": -59.1332,\n  \"sectores\": [\n    {\n      \"nombre\": \"Platea Alta\",\n      \"tipo\": \"NUMERADO\",\n      \"filas\": 20,\n      \"asientosPorFila\": 30\n    },\n    {\n      \"nombre\": \"Campo\",\n      \"tipo\": \"NO_NUMERADO\",\n      \"capacidad\": 5000\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('fechaEvento', new Date(Date.now() + 30*86400000).toISOString().slice(0,19));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const l = pm.response.json();",
+                  "pm.collectionVariables.set('lugarId', l.id);",
+                  "const num = l.sectores.find(s => s.tipo === 'NUMERADO');",
+                  "const gen = l.sectores.find(s => s.tipo === 'NO_NUMERADO');",
+                  "if (num) pm.collectionVariables.set('sectorNumId', num.id);",
+                  "if (gen) pm.collectionVariables.set('sectorGralId', gen.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Crear evento en borrador (ORGANIZADOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Festival de Verano 2027\",\n  \"descripcion\": \"Dos noches de rock nacional\",\n  \"tipo\": \"RECITAL\",\n  \"lugarId\": {{lugarId}},\n  \"fechaHora\": \"{{fechaEvento}}\",\n  \"participantes\": [\n    {\n      \"nombre\": \"Los Andariegos\",\n      \"tipo\": \"ARTISTA\"\n    }\n  ],\n  \"maxEntradasPorCliente\": 4,\n  \"altaDemanda\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Queda en BORRADOR', () => pm.expect(pm.response.json().estado).to.eql('BORRADOR'));",
+                  "pm.collectionVariables.set('eventoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Configurar precios (ORGANIZADOR)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:{eventoId}/precios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":{eventoId}",
+                "precios"
+              ],
+              "variable": [
+                {
+                  "key": "{eventoId}",
+                  "value": "{{{eventoId}}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"sectorId\": {{sectorNumId}},\n    \"precio\": 45000.0\n  },\n  {\n    \"sectorId\": {{sectorGralId}},\n    \"precio\": 28000.0\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Publicar evento (ORGANIZADOR)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:{eventoId}/publicar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":{eventoId}",
+                "publicar"
+              ],
+              "variable": [
+                {
+                  "key": "{eventoId}",
+                  "value": "{{{eventoId}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Queda PUBLICADO', () => pm.expect(pm.response.json().estado).to.eql('PUBLICADO'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Ver disponibilidad (CLIENTE)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:{eventoId}/disponibilidad",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":{eventoId}",
+                "disponibilidad"
+              ],
+              "variable": [
+                {
+                  "key": "{eventoId}",
+                  "value": "{{{eventoId}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "6. Reservar dos asientos (CLIENTE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventoId\": {{eventoId}},\n  \"sectorId\": {{sectorNumId}},\n  \"asientos\": [\n    {\n      \"fila\": 1,\n      \"numero\": 1\n    },\n    {\n      \"fila\": 1,\n      \"numero\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('reservaId', pm.response.json().reservaId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "7. Pagar la reserva (CLIENTE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reservaId\": \"{{reservaId}}\",\n  \"medioPago\": {\n    \"tipo\": \"TARJETA_CREDITO\",\n    \"token\": \"tok_ok\",\n    \"ultimos4\": \"4242\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const c = pm.response.json();",
+                  "pm.test('Compra APROBADA con entradas', () => { pm.expect(c.estado).to.eql('APROBADA'); pm.expect(c.entradas.length).to.eql(2); });",
+                  "pm.collectionVariables.set('compraId', c.compraId);",
+                  "pm.collectionVariables.set('entradaId', c.entradas[0].entradaId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "8. Ver mis entradas (CLIENTE)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/entradas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "entradas"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "9. Solicitar devolucion (CLIENTE)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entradaId\": \"{{entradaId}}\",\n  \"motivo\": \"No puedo asistir\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Queda SOLICITADA', () => pm.expect(pm.response.json().estado).to.eql('SOLICITADA'));",
+                  "pm.collectionVariables.set('devolucionId', pm.response.json().devolucionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "10. Aprobar devolucion (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones/:{devolucionId}/aprobar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones",
+                ":{devolucionId}",
+                "aprobar"
+              ],
+              "variable": [
+                {
+                  "key": "{devolucionId}",
+                  "value": "{{{devolucionId}}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Queda REINTEGRADA', () => pm.expect(pm.response.json().estado).to.eql('REINTEGRADA'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Casos de error",
+      "item": [
+        {
+          "name": "E1. Reservar un asiento ya reservado, otro cliente (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId2}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventoId\": {{eventoId}},\n  \"sectorId\": {{sectorNumId}},\n  \"asientos\": [\n    {\n      \"fila\": 1,\n      \"numero\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Ejecutar despues del paso 6 del flujo, antes de que venza la reserva (10 minutos)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict: el asiento ya esta reservado', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E2. Crear reserva para pago rechazado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventoId\": {{eventoId}},\n  \"sectorId\": {{sectorNumId}},\n  \"asientos\": [\n    {\n      \"fila\": 2,\n      \"numero\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('reservaRechazoId', pm.response.json().reservaId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E3. Pagar con tok_rechazado (402)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reservaId\": \"{{reservaRechazoId}}\",\n  \"medioPago\": {\n    \"tipo\": \"TARJETA_CREDITO\",\n    \"token\": \"tok_rechazado\",\n    \"ultimos4\": \"0002\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('402 Payment Required', () => pm.response.to.have.status(402));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E4. Pagar sin Idempotency-Key (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reservaId\": \"{{reservaId}}\",\n  \"medioPago\": {\n    \"tipo\": \"TARJETA_CREDITO\",\n    \"token\": \"tok_ok\",\n    \"ultimos4\": \"4242\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E5. Sin headers de identidad (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Lugares",
+      "item": [
+        {
+          "name": "Crear un lugar con sus sectores",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lugares",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Estadio Ciudad de Tandil\",\n  \"direccion\": \"Av. Don Bosco 1200\",\n  \"ciudad\": \"Tandil\",\n  \"latitud\": -37.3217,\n  \"longitud\": -59.1332,\n  \"sectores\": [\n    {\n      \"nombre\": \"Platea Alta\",\n      \"tipo\": \"NUMERADO\",\n      \"filas\": 20,\n      \"asientosPorFila\": 30\n    },\n    {\n      \"nombre\": \"Campo\",\n      \"tipo\": \"NO_NUMERADO\",\n      \"capacidad\": 5000\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Registra un lugar (estadio, teatro, sala). Un sector **NUMERADO** requiere `filas` y `asientosPorFila`;\nuno **NO_NUMERADO** requiere `capacidad`. Roles: `ORGANIZADOR`, `ADMIN`."
+          }
+        },
+        {
+          "name": "Listar lugares",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/lugares",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares"
+              ],
+              "query": [
+                {
+                  "key": "ciudad",
+                  "value": "Tandil",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lista paginada de lugares, filtrable por ciudad. Público."
+          }
+        },
+        {
+          "name": "Detalle de un lugar con sus sectores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/lugares/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{lugarId}}"
+                }
+              ]
+            },
+            "description": "Público."
+          }
+        },
+        {
+          "name": "Agregar un sector a un lugar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/lugares/:id/sectores",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares",
+                ":id",
+                "sectores"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{lugarId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Platea Baja\",\n  \"tipo\": \"NUMERADO\",\n  \"filas\": 10,\n  \"asientosPorFila\": 25\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Roles `ORGANIZADOR`, `ADMIN`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Eventos",
+      "item": [
+        {
+          "name": "Crear un evento en borrador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Festival de Verano 2027\",\n  \"descripcion\": \"Dos noches de rock nacional\",\n  \"tipo\": \"RECITAL\",\n  \"lugarId\": 3,\n  \"fechaHora\": \"2027-01-15T21:00:00\",\n  \"participantes\": [\n    {\n      \"nombre\": \"Los Andariegos\",\n      \"tipo\": \"ARTISTA\"\n    }\n  ],\n  \"maxEntradasPorCliente\": 4,\n  \"altaDemanda\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El evento queda en estado `BORRADOR` y el organizador es el usuario de `X-User-Id`.\nLa fecha debe ser futura. Rol: `ORGANIZADOR`."
+          }
+        },
+        {
+          "name": "Buscar eventos por múltiples criterios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos"
+              ],
+              "query": [
+                {
+                  "key": "tipo",
+                  "value": "RECITAL",
+                  "disabled": true
+                },
+                {
+                  "key": "organizadorId",
+                  "value": "7",
+                  "disabled": true
+                },
+                {
+                  "key": "participante",
+                  "value": "andariegos",
+                  "disabled": true
+                },
+                {
+                  "key": "ciudad",
+                  "value": "Tandil",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaDesde",
+                  "value": "2026-12-01",
+                  "disabled": true
+                },
+                {
+                  "key": "fechaHasta",
+                  "value": "2027-03-31",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "orden",
+                  "value": "fecha",
+                  "disabled": true
+                },
+                {
+                  "key": "dir",
+                  "value": "asc",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Todos los filtros son opcionales y se combinan con AND. Solo devuelve eventos `PUBLICADO` y `AGOTADO`.\n`orden=precio` usa el precio mínimo entre los sectores del evento.\n`orden=relevancia` es simplificada: coincidencia de `q` y luego cercanía de la fecha.\nSi `fechaDesde` es posterior a `fechaHasta` responde `400`. Público."
+          }
+        },
+        {
+          "name": "Detalle de un evento",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Público. Un evento en `BORRADOR` solo lo ve su organizador o un administrador\n(para el resto responde `404`)."
+          }
+        },
+        {
+          "name": "Editar un evento en borrador",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Festival de Verano 2027\",\n  \"descripcion\": \"Dos noches de rock nacional\",\n  \"tipo\": \"RECITAL\",\n  \"lugarId\": 3,\n  \"fechaHora\": \"2027-01-15T21:00:00\",\n  \"participantes\": [\n    {\n      \"nombre\": \"Los Andariegos\",\n      \"tipo\": \"ARTISTA\"\n    }\n  ],\n  \"maxEntradasPorCliente\": 4,\n  \"altaDemanda\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Solo el organizador dueño y solo mientras el evento esté en `BORRADOR`."
+          }
+        },
+        {
+          "name": "Configurar los precios por sector del evento",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/precios",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "precios"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"sectorId\": 11,\n    \"precio\": 45000.0\n  },\n  {\n    \"sectorId\": 12,\n    \"precio\": 28000.0\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Reemplaza la lista de `{sectorId, precio}` del evento. Los sectores deben pertenecer al lugar del evento\ny el precio debe ser mayor a 0. Solo el organizador dueño y solo en `BORRADOR`."
+          }
+        },
+        {
+          "name": "Publicar un evento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{organizadorId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ORGANIZADOR"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/publicar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "publicar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Requiere al menos un sector con precio. Pasa a `PUBLICADO` e inicializa el inventario en ms-reservas.\nSi ms-reservas no responde, el evento sigue en `BORRADOR` y se puede reintentar. Solo el organizador dueño."
+          }
+        },
+        {
+          "name": "Suspender un evento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/suspender",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "suspender"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Rol `ADMIN`. `PUBLICADO` o `AGOTADO` pasa a `SUSPENDIDO`: deja de aparecer en búsquedas y no admite nuevas reservas."
+          }
+        },
+        {
+          "name": "Reanudar un evento suspendido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/reanudar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "reanudar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Rol `ADMIN`. `SUSPENDIDO` vuelve a `PUBLICADO` y se reabre su inventario."
+          }
+        },
+        {
+          "name": "Cancelar un evento",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/cancelar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "cancelar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivo\": \"Falla de la productora\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rol `ADMIN`. Pasa a `CANCELADO`, cierra el inventario (libera reservas pendientes) y dispara el reintegro\nde todas las entradas vendidas. No se puede cancelar un evento `FINALIZADO` o ya `CANCELADO`."
+          }
+        },
+        {
+          "name": "Sectores del evento con sus precios",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:id/sectores",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":id",
+                "sectores"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Público. Lo usa también ms-ventas para obtener precios y fecha al comprar."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Disponibilidad",
+      "item": [
+        {
+          "name": "Lugares disponibles por sector",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:eventoId/disponibilidad",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":eventoId",
+                "disponibilidad"
+              ],
+              "variable": [
+                {
+                  "key": "eventoId",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Público. Este dato **no se cachea** (cambia en cada reserva)."
+          }
+        },
+        {
+          "name": "Mapa de asientos de un sector numerado",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/eventos/:eventoId/sectores/:sectorId/asientos",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "eventos",
+                ":eventoId",
+                "sectores",
+                ":sectorId",
+                "asientos"
+              ],
+              "variable": [
+                {
+                  "key": "eventoId",
+                  "value": "{{eventoId}}"
+                },
+                {
+                  "key": "sectorId",
+                  "value": "{{sectorNumId}}"
+                }
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Público. Para sectores no numerados responde `400`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reservas",
+      "item": [
+        {
+          "name": "Reservar lugares temporalmente (10 minutos)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventoId\": 42,\n  \"sectorId\": 11,\n  \"asientos\": [\n    {\n      \"fila\": 3,\n      \"numero\": 10\n    },\n    {\n      \"fila\": 3,\n      \"numero\": 11\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rol `CLIENTE`. En un sector **numerado** se envían `asientos`; en uno **no numerado**, `cantidad`.\nLa operación es **todo o nada**: si algún lugar ya no está libre responde `409` y no queda ninguno reservado.\nMecanismo anti doble venta: `UPDATE` condicional por estado sobre la base de ms-reservas.\nTambién valida el límite de entradas por cliente para el evento (`422`)."
+          }
+        },
+        {
+          "name": "Consultar una reserva",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{reservaId}}"
+                }
+              ]
+            },
+            "description": "Solo el cliente dueño. Lo usa también ms-ventas reenviando `X-User-Id`."
+          }
+        },
+        {
+          "name": "Liberar una reserva pendiente",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reservas/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reservas",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{reservaId}}"
+                }
+              ]
+            },
+            "description": "Solo el cliente dueño. Los lugares vuelven a `LIBRE`. Una reserva `CONFIRMADA` no se puede cancelar."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Compras",
+      "item": [
+        {
+          "name": "Pagar una reserva y emitir las entradas",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reservaId\": \"5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11\",\n  \"medioPago\": {\n    \"tipo\": \"TARJETA_CREDITO\",\n    \"token\": \"tok_ok\",\n    \"ultimos4\": \"4242\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rol `CLIENTE`. Orquesta: verifica la reserva, cobra en la pasarela (mock), confirma la reserva y emite\nuna entrada con `codigoQr` único por lugar. Si el pago es rechazado libera los lugares (`402`); si la reserva\nvenció no se cobra (`410`); si venció durante el cobro se reembolsa el pago (`410`).\n\n**Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original\n(`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar mis compras",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Rol `CLIENTE`. Devuelve solo las compras del usuario de `X-User-Id`."
+          }
+        },
+        {
+          "name": "Detalle de una compra",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{compraId}}"
+                }
+              ]
+            },
+            "description": "El cliente dueño o un `ADMIN`. Incluye el medio de pago y las entradas."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Entradas",
+      "item": [
+        {
+          "name": "Listar mis entradas",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/entradas",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "entradas"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "eventoId",
+                  "value": "42",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Rol `CLIENTE`. Devuelve solo las entradas del usuario de `X-User-Id`."
+          }
+        },
+        {
+          "name": "Detalle de una entrada con su QR",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/entradas/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "entradas",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{entradaId}}"
+                }
+              ]
+            },
+            "description": "El cliente dueño o un `ADMIN`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Devoluciones",
+      "item": [
+        {
+          "name": "Solicitar la devolución de una entrada",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"entradaId\": \"e1b2c3d4-0001-4aaa-8bbb-111122223333\",\n  \"motivo\": \"No puedo asistir\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rol `CLIENTE`. Permitida hasta 72 horas antes del evento. La entrada pasa a `DEVOLUCION_SOLICITADA` y\nla devolución queda `SOLICITADA` hasta que un administrador la resuelva."
+          }
+        },
+        {
+          "name": "Listar devoluciones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones"
+              ],
+              "query": [
+                {
+                  "key": "estado",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "0",
+                  "disabled": true
+                },
+                {
+                  "key": "size",
+                  "value": "20",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Rol `ADMIN`. Con `estado=SOLICITADA` muestra las pendientes de resolver."
+          }
+        },
+        {
+          "name": "Detalle de una devolución",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{clienteId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "CLIENTE"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{devolucionId}}"
+                }
+              ]
+            },
+            "description": "Un `ADMIN` o el cliente dueño."
+          }
+        },
+        {
+          "name": "Aprobar una devolución",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones/:id/aprobar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones",
+                ":id",
+                "aprobar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{devolucionId}}"
+                }
+              ]
+            },
+            "description": "Rol `ADMIN`. La devolución pasa a `EN_PROCESO` y se solicita el reintegro a la pasarela y la liberación del\nlugar en ms-reservas; al completarse ambos queda `REINTEGRADA`. Si la pasarela falla responde `502` y la\ndevolución sigue `EN_PROCESO`; aprobar de nuevo reintenta solo la parte pendiente (no devuelve el dinero dos veces)."
+          }
+        },
+        {
+          "name": "Rechazar una devolución",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devoluciones/:id/rechazar",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "devoluciones",
+                ":id",
+                "rechazar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{devolucionId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"motivo\": \"La entrada ya fue transferida\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Rol `ADMIN`. Requiere motivo. La devolución queda `RECHAZADA` y la entrada vuelve a `EMITIDA`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Internos (solo entre servicios, sin gateway)",
+      "item": [
+        {
+          "name": "[ms-reservas → ms-eventos] Marcar el evento como agotado o disponible",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{eventosUrl}}/internal/eventos/:id/disponibilidad",
+              "host": [
+                "{{eventosUrl}}"
+              ],
+              "path": [
+                "internal",
+                "eventos",
+                ":id",
+                "disponibilidad"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"agotado\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "`agotado=true` pasa el evento a `AGOTADO`; `agotado=false` lo devuelve a `PUBLICADO`."
+          }
+        },
+        {
+          "name": "[ms-eventos → ms-reservas] Crear el inventario al publicar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/inventarios",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "inventarios"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"eventoId\": 42,\n  \"maxPorCliente\": 4,\n  \"sectores\": [\n    {\n      \"sectorId\": 11,\n      \"tipo\": \"NUMERADO\",\n      \"filas\": 20,\n      \"asientosPorFila\": 30\n    },\n    {\n      \"sectorId\": 12,\n      \"tipo\": \"NO_NUMERADO\",\n      \"capacidad\": 5000\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Genera los asientos (sectores numerados) y los cupos (no numerados) del evento.\nIdempotente: si el inventario ya existe responde `409` sin modificarlo."
+          }
+        },
+        {
+          "name": "[ms-eventos → ms-reservas] Cerrar el evento",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/eventos/:eventoId/cerrar",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "eventos",
+                ":eventoId",
+                "cerrar"
+              ],
+              "variable": [
+                {
+                  "key": "eventoId",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Libera las reservas pendientes y rechaza nuevas reservas (al suspender o cancelar)."
+          }
+        },
+        {
+          "name": "[ms-eventos → ms-reservas] Reabrir el evento",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/eventos/:eventoId/abrir",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "eventos",
+                ":eventoId",
+                "abrir"
+              ],
+              "variable": [
+                {
+                  "key": "eventoId",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Vuelve a admitir reservas (al reanudar un evento suspendido)."
+          }
+        },
+        {
+          "name": "[ms-ventas → ms-reservas] Confirmar la reserva tras el pago",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/reservas/:id/confirmar",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "reservas",
+                ":id",
+                "confirmar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{reservaId}}"
+                }
+              ]
+            },
+            "description": "`PENDIENTE` y vigente pasa a `CONFIRMADA` y sus lugares a `VENDIDO`\n(`UPDATE ... WHERE estado='PENDIENTE' AND expira_en > now()`)."
+          }
+        },
+        {
+          "name": "[ms-ventas → ms-reservas] Liberar la reserva (pago rechazado)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/reservas/:id/liberar",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "reservas",
+                ":id",
+                "liberar"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{reservaId}}"
+                }
+              ]
+            },
+            "description": "La reserva pasa a `LIBERADA` y sus lugares a `LIBRE`. Idempotente."
+          }
+        },
+        {
+          "name": "[ms-ventas → ms-reservas] Liberar lugares por una devolución aprobada",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{reservasUrl}}/internal/reservas/:id/devolver",
+              "host": [
+                "{{reservasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "reservas",
+                ":id",
+                "devolver"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{reservaId}}"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"fila\": 3,\n      \"numero\": 10\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "[ms-eventos → ms-ventas] Reintegrar las entradas de un evento cancelado",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{ventasUrl}}/internal/eventos/:eventoId/cancelacion",
+              "host": [
+                "{{ventasUrl}}"
+              ],
+              "path": [
+                "internal",
+                "eventos",
+                ":eventoId",
+                "cancelacion"
+              ],
+              "variable": [
+                {
+                  "key": "eventoId",
+                  "value": "{{eventoId}}"
+                }
+              ]
+            },
+            "description": "Pasa las entradas `EMITIDA` a `REINTEGRO_PENDIENTE` y solicita el reintegro a la pasarela por cada una.\nIdempotente: volver a llamarlo no reintegra dos veces la misma entrada."
+          }
+        }
+      ],
+      "description": "Estos endpoints no pasan por el gateway: se llaman directo a cada microservicio."
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api"
+    },
+    {
+      "key": "eventosUrl",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "reservasUrl",
+      "value": "http://localhost:8082"
+    },
+    {
+      "key": "ventasUrl",
+      "value": "http://localhost:8083"
+    },
+    {
+      "key": "clienteId",
+      "value": "101"
+    },
+    {
+      "key": "clienteId2",
+      "value": "102"
+    },
+    {
+      "key": "organizadorId",
+      "value": "7"
+    },
+    {
+      "key": "adminId",
+      "value": "1"
+    },
+    {
+      "key": "lugarId",
+      "value": ""
+    },
+    {
+      "key": "sectorNumId",
+      "value": ""
+    },
+    {
+      "key": "sectorGralId",
+      "value": ""
+    },
+    {
+      "key": "eventoId",
+      "value": ""
+    },
+    {
+      "key": "reservaId",
+      "value": ""
+    },
+    {
+      "key": "reservaRechazoId",
+      "value": ""
+    },
+    {
+      "key": "compraId",
+      "value": ""
+    },
+    {
+      "key": "entradaId",
+      "value": ""
+    },
+    {
+      "key": "devolucionId",
+      "value": ""
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "fechaEvento",
+      "value": ""
+    }
+  ]
+}

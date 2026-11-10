@@ -109,12 +109,14 @@ public class CompraService {
             throw ex;
         }
 
+        Compra compra = existente != null
+                ? existente
+                : registrarPendiente(clienteId, idempotencyKey, request.reservaId(),
+                        reserva.eventoId(), requestHash, BigDecimal.ZERO);
+
         SnapshotCompra snapshot = eventosClient.obtenerSnapshotParaCompra(reserva.eventoId(), reserva.sectorId());
         BigDecimal total = snapshot.precioUnitario().multiply(BigDecimal.valueOf(reserva.cantidad()));
-
-        Compra compra = existente != null
-                ? actualizarPendiente(existente.getId(), reserva.eventoId(), total)
-                : registrarPendiente(clienteId, idempotencyKey, request.reservaId(), reserva.eventoId(), requestHash, total);
+        compra = actualizarPendiente(compra.getId(), reserva.eventoId(), total);
 
         String claveCobro = claveCobroDe(compra.getId());
         ResultadoCobro cobro = pasarelaPagoService.cobrar(claveCobro, request.medioPago().token(), total);

@@ -84,8 +84,8 @@ Si el cliente autenticado intenta pagar una reserva que pertenece a otro usuario
 - **THEN** el sistema responde HTTP 403 Forbidden
 - **AND** no se ejecuta cobro ni cambio de estado.
 
-### Requirement: Control de Idempotencia
-Toda solicitud POST /compras exige el header `Idempotency-Key`. Claves repetidas con el mismo cuerpo retornan el resultado almacenado sin reejecutar cobros. Claves repetidas con cuerpo distinto retornan 422. Si falta el header, responde 400.
+### Requirement: Control de idempotencia
+Toda solicitud POST /compras SHALL exigir el header `Idempotency-Key`. Ante una clave ya registrada para el mismo cliente con cuerpo idéntico, el sistema SHALL retornar la respuesta original almacenada sin invocar pasarela ni duplicar cobros o entradas; si la clave se repite con un cuerpo distinto, el sistema SHALL responder 422 Unprocessable Entity; y si el header está ausente o vacío, el sistema SHALL responder 400 Bad Request.
 
 #### Scenario: Reintento legítimo con respuesta cacheada
 - **GIVEN** una compra previa exitosa asociada a la clave "k-100"

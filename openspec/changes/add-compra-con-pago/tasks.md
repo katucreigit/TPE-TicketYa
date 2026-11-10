@@ -7,9 +7,9 @@
 
 ## 2. Integraciones
 
-- [ ] 2.1 Cliente HTTP a ms-reservas (validar, confirmar, liberar).
+- [x] 2.1 Cliente HTTP a ms-reservas (validar, confirmar, liberar).
 - [ ] 2.2 Cliente HTTP a ms-eventos para estado, precios y fecha del evento.
-- [ ] 2.3 Servicio de pasarela mock con los tres tokens, que recibe una clave de cobro y devuelve el resultado original si se repite.
+- [x] 2.3 Servicio de pasarela mock con los tres tokens, que recibe una clave de cobro y devuelve el resultado original si se repite.
 
 ## 3. Compra
 

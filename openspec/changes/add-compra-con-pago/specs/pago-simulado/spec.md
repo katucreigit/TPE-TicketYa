@@ -26,7 +26,7 @@ La pasarela SHALL procesar peticiones de cobro evaluando el token recibido:
 - **GIVEN** un token "tok_timeout" y una clave de cobro "cobro-123"
 - **WHEN** se envía la solicitud de cobro por primera vez
 - **THEN** la pasarela persiste internamente el cobro como exitoso
-- **AND** no responde antes del tiempo límite configurado (responde HTTP 504 o fuerza timeout).
+- **AND** responde HTTP 504.
 
 #### Scenario: Token no soportado
 - **GIVEN** un token arbitrario "tok_tarjeta_invalida"

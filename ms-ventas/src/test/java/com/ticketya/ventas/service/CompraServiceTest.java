@@ -7,6 +7,8 @@ import com.ticketya.ventas.client.ReservasClient;
 import com.ticketya.ventas.dto.CompraRequest;
 import com.ticketya.ventas.dto.MedioPagoRequest;
 import com.ticketya.ventas.exception.BadGatewayException;
+import com.ticketya.ventas.exception.BusinessRuleException;
+import com.ticketya.ventas.exception.ConflictException;
 import com.ticketya.ventas.exception.ForbiddenException;
 import com.ticketya.ventas.exception.GatewayTimeoutException;
 import com.ticketya.ventas.exception.GoneException;
@@ -33,6 +35,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,7 +51,7 @@ class CompraServiceTest {
     private static final LocalDateTime FECHA_EVENTO = LocalDateTime.of(2027, 1, 15, 21, 0);
     private static final BigDecimal PRECIO_UNITARIO = new BigDecimal("45000.00");
 
-    private final Map<UUID, Compra> db = new HashMap<>();
+    private final Map<UUID, Compra> db = new ConcurrentHashMap<>();
     private CompraRepository compraRepository;
     private ReservasClient reservasClient;
     private EventosClient eventosClient;
@@ -284,6 +291,88 @@ class CompraServiceTest {
 
         verifyNoInteractions(pasarelaPagoService);
         assertTrue(db.isEmpty());
+    }
+
+    @Test
+    void idempotenciaRepeticionConMismoCuerpoDevuelveRespuestaOriginalSinVolverACobrar() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        ResultadoCompra primera = compraService.crear("cli-100", "k-idem-1", requestConToken("tok_ok"));
+        ResultadoCompra segunda = compraService.crear("cli-100", "k-idem-1", requestConToken("tok_ok"));
+
+        assertFalse(primera.repeticion());
+        assertTrue(segunda.repeticion());
+        assertEquals(primera.compra(), segunda.compra());
+        verify(pasarelaPagoService, times(1)).cobrar(anyString(), anyString(), any());
+        verify(reservasClient, times(1)).confirmar(RESERVA_ID);
+    }
+
+    @Test
+    void idempotenciaMismaClaveConCuerpoDistintoResponde422IdempotencyKeyReutilizada() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        compraService.crear("cli-100", "k-idem-422", requestConToken("tok_ok"));
+
+        UUID otraReserva = UUID.fromString("99999999-1111-1111-1111-111111111111");
+        CompraRequest otroCuerpo = new CompraRequest(
+                otraReserva, new MedioPagoRequest(TipoMedioPago.TARJETA_CREDITO, "tok_ok", "4242"));
+
+        BusinessRuleException ex = assertThrows(BusinessRuleException.class,
+                () -> compraService.crear("cli-100", "k-idem-422", otroCuerpo));
+        assertEquals(422, ex.getStatus().value());
+        assertEquals("IDEMPOTENCY_KEY_REUTILIZADA", ex.getCode());
+    }
+
+    @Test
+    void idempotenciaSolicitudesSimultaneasConLaMismaClaveProcesanUnaYRechazanCon409() throws Exception {
+        CountDownLatch dentroDeValidacion = new CountDownLatch(1);
+        CountDownLatch liberarValidacion = new CountDownLatch(1);
+
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenAnswer(inv -> {
+            dentroDeValidacion.countDown();
+            assertTrue(liberarValidacion.await(5, TimeUnit.SECONDS));
+            return reservaVigente();
+        });
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        int hilos = 5;
+        var pool = Executors.newFixedThreadPool(hilos);
+        CountDownLatch listos = new CountDownLatch(hilos);
+        CountDownLatch largada = new CountDownLatch(1);
+        AtomicInteger exitos = new AtomicInteger();
+        AtomicInteger conflictos409 = new AtomicInteger();
+
+        for (int i = 0; i < hilos; i++) {
+            pool.submit(() -> {
+                listos.countDown();
+                try {
+                    largada.await();
+                    compraService.crear("cli-100", "k-simultanea", requestConToken("tok_ok"));
+                    exitos.incrementAndGet();
+                } catch (ConflictException ex) {
+                    if (ex.getStatus().value() == 409) {
+                        conflictos409.incrementAndGet();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        }
+
+        assertTrue(listos.await(5, TimeUnit.SECONDS));
+        largada.countDown();
+        assertTrue(dentroDeValidacion.await(5, TimeUnit.SECONDS));
+        Thread.sleep(50);
+        liberarValidacion.countDown();
+
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+
+        assertEquals(1, exitos.get());
+        assertEquals(hilos - 1, conflictos409.get());
+        verify(pasarelaPagoService, times(1)).cobrar(anyString(), anyString(), any());
     }
 }
 

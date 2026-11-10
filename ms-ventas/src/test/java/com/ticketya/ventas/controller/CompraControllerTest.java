@@ -4,7 +4,10 @@ import com.ticketya.ventas.dto.CompraRequest;
 import com.ticketya.ventas.dto.CompraResponse;
 import com.ticketya.ventas.dto.EntradaResponse;
 import com.ticketya.ventas.dto.MedioPagoResponse;
+import com.ticketya.ventas.dto.PageCompraResponse;
+import com.ticketya.ventas.exception.ForbiddenException;
 import com.ticketya.ventas.exception.GlobalExceptionHandler;
+import com.ticketya.ventas.exception.NotFoundException;
 import com.ticketya.ventas.model.enums.EstadoCompra;
 import com.ticketya.ventas.model.enums.EstadoEntrada;
 import com.ticketya.ventas.model.enums.TipoMedioPago;
@@ -26,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -167,6 +171,57 @@ class CompraControllerTest {
                 .andExpect(jsonPath("$.code").value("VALIDACION"));
 
         verifyNoInteractions(compraService);
+    }
+
+    @Test
+    void listarComprasPropiasResponde200ConPaginaDeCompras() throws Exception {
+        UUID compraId = UUID.fromString("c0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9aa");
+        CompraResponse compra = new CompraResponse(
+                compraId, EstadoCompra.APROBADA, new BigDecimal("90000.00"),
+                new MedioPagoResponse(TipoMedioPago.TARJETA_CREDITO, "4242"), List.of()
+        );
+        when(compraService.listarDelCliente("cli-100", 0, 20))
+                .thenReturn(new PageCompraResponse(List.of(compra), 0, 20, 1L, 1));
+
+        mvc.perform(get("/compras")
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.content[0].compraId").value(compraId.toString()))
+                .andExpect(jsonPath("$.content[0].medioPago.ultimos4").value("4242"));
+    }
+
+    @Test
+    void obtenerCompraPropiaResponde200Ajena403EInexistente404() throws Exception {
+        UUID propiaId = UUID.fromString("c0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9aa");
+        UUID ajenaId = UUID.fromString("d0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9bb");
+        UUID inexistenteId = UUID.fromString("e0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9cc");
+        CompraResponse respuesta = new CompraResponse(
+                propiaId, EstadoCompra.APROBADA, new BigDecimal("45000.00"),
+                new MedioPagoResponse(TipoMedioPago.TARJETA_CREDITO, "4242"), List.of()
+        );
+        when(compraService.obtener(propiaId, "cli-100", false)).thenReturn(respuesta);
+        when(compraService.obtener(ajenaId, "cli-100", false)).thenThrow(new ForbiddenException());
+        when(compraService.obtener(inexistenteId, "cli-100", false)).thenThrow(new NotFoundException("No existe"));
+
+        mvc.perform(get("/compras/" + propiaId)
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.compraId").value(propiaId.toString()));
+
+        mvc.perform(get("/compras/" + ajenaId)
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+
+        mvc.perform(get("/compras/" + inexistenteId)
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("NO_ENCONTRADO"));
     }
 }
 

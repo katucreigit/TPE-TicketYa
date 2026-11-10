@@ -1,6 +1,8 @@
 package com.ticketya.ventas.repository;
 
 import com.ticketya.ventas.model.Compra;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -11,4 +13,9 @@ public interface CompraRepository extends JpaRepository<Compra, UUID> {
 
     @EntityGraph(attributePaths = {"pago", "entradas"})
     Optional<Compra> findByClienteIdAndIdempotencyKey(String clienteId, String idempotencyKey);
+
+    @EntityGraph(attributePaths = {"pago", "entradas"})
+    Optional<Compra> findWithDetallesById(UUID id);
+
+    Page<Compra> findByClienteIdOrderByCreadaEnDesc(String clienteId, Pageable pageable);
 }

@@ -7,9 +7,12 @@ import com.ticketya.ventas.client.ReservasClient;
 import com.ticketya.ventas.dto.CompraRequest;
 import com.ticketya.ventas.dto.CompraResponse;
 import com.ticketya.ventas.dto.MedioPagoRequest;
+import com.ticketya.ventas.dto.PageCompraResponse;
 import com.ticketya.ventas.exception.BusinessRuleException;
 import com.ticketya.ventas.exception.ConflictException;
+import com.ticketya.ventas.exception.ForbiddenException;
 import com.ticketya.ventas.exception.GoneException;
+import com.ticketya.ventas.exception.NotFoundException;
 import com.ticketya.ventas.exception.PaymentRequiredException;
 import com.ticketya.ventas.model.Compra;
 import com.ticketya.ventas.model.Entrada;
@@ -20,7 +23,10 @@ import com.ticketya.ventas.model.enums.EstadoPago;
 import com.ticketya.ventas.repository.CompraRepository;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoCobro;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
@@ -79,6 +85,24 @@ public class CompraService {
         } finally {
             clavesEnVuelo.remove(claveConcurrencia);
         }
+    }
+
+    @Transactional(readOnly = true)
+    public PageCompraResponse listarDelCliente(String clienteId, int page, int size) {
+        Page<CompraResponse> compras = compraRepository
+                .findByClienteIdOrderByCreadaEnDesc(clienteId, PageRequest.of(page, size))
+                .map(CompraResponse::from);
+        return PageCompraResponse.from(compras);
+    }
+
+    @Transactional(readOnly = true)
+    public CompraResponse obtener(UUID id, String solicitanteId, boolean esAdmin) {
+        Compra compra = compraRepository.findWithDetallesById(id)
+                .orElseThrow(() -> new NotFoundException("La compra " + id + " no existe"));
+        if (!esAdmin && !compra.getClienteId().equals(solicitanteId)) {
+            throw new ForbiddenException();
+        }
+        return CompraResponse.from(compra);
     }
 
     private ResultadoCompra ejecutarSaga(String clienteId, String idempotencyKey,

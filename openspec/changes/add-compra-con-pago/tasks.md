@@ -13,7 +13,7 @@
 
 ## 3. Compra
 
-- [ ] 3.1 Endpoint POST /compras con Idempotency-Key obligatoria.
+- [x] 3.1 Endpoint POST /compras con Idempotency-Key obligatoria.
 - [ ] 3.2 Orquestación de la saga con compensaciones y reembolso.
 - [ ] 3.3 Derivar la clave de cobro del id de la compra y mantener la compra PENDIENTE tras un 502 o 504.
 - [ ] 3.4 Emisión de entradas con QR único.

@@ -103,7 +103,7 @@ La pasarela es un mock que decide según el token del medio de pago:
 |---|---|
 | `tok_ok` | Pago aprobado |
 | `tok_rechazado` | Pago rechazado (`402`) |
-| `tok_timeout` | La pasarela no responde (`504`) |
+| `tok_timeout` | La pasarela cobra pero no responde a tiempo (`504`); al reintentar con la misma `Idempotency-Key` devuelve el cobro original, sin cobrar de nuevo |
 
 ## Pruebas
 

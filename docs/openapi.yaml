@@ -28,7 +28,8 @@ info:
     Cada uno declara su propio servidor (puerto del microservicio dueño).
 
     **Pasarela de pagos simulada:** se decide por `medioPago.token`: `tok_ok` aprueba, `tok_rechazado` rechaza,
-    `tok_timeout` simula una falla de la pasarela.
+    `tok_timeout` simula que la pasarela cobró pero no respondió a tiempo. ms-ventas envía a la pasarela una clave de cobro
+    derivada del id de la compra; si la repite, la pasarela devuelve el cobro original sin cobrar de nuevo.
 
     **Error estándar:** todos los servicios devuelven el mismo objeto `Error`.
   contact:
@@ -761,6 +762,10 @@ paths:
 
         **Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original
         (`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`.
+
+        **Falla de la pasarela:** si no responde (`504`) o no se pudo conectar (`502`), la compra sigue `PENDIENTE`.
+        Reintentar con la misma `Idempotency-Key` reutiliza la misma compra y la misma clave de cobro, de modo que
+        a lo sumo se cobra una vez. Si la reserva venció, el reintento responde `410` y no se envía un nuevo cobro.
       parameters:
         - $ref: '#/components/parameters/XUserId'
         - $ref: '#/components/parameters/XUserRol'
@@ -783,7 +788,7 @@ paths:
                   reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
                   medioPago: { tipo: TARJETA_CREDITO, token: tok_rechazado, ultimos4: '0002' }
               fallaPasarela:
-                summary: Falla de la pasarela (token tok_timeout)
+                summary: Pasarela sin respuesta (token tok_timeout)
                 value:
                   reservaId: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11
                   medioPago: { tipo: TARJETA_DEBITO, token: tok_timeout, ultimos4: '1111' }
@@ -857,7 +862,7 @@ paths:
         '502':
           $ref: '#/components/responses/BadGateway'
         '504':
-          description: La pasarela de pagos no respondió a tiempo
+          description: La pasarela de pagos no respondió a tiempo después de recibir el cobro. La compra sigue `PENDIENTE` y se puede reintentar con la misma `Idempotency-Key`
           content:
             application/json:
               schema:
@@ -1677,7 +1682,7 @@ components:
       required: [tipo, token]
       properties:
         tipo: { $ref: '#/components/schemas/TipoMedioPago' }
-        token: { type: string, description: 'Token de la pasarela mock: tok_ok, tok_rechazado o tok_timeout', example: tok_ok }
+        token: { type: string, description: 'Token de la pasarela mock: tok_ok (aprueba), tok_rechazado (rechaza) o tok_timeout (cobra pero no responde a tiempo)', example: tok_ok }
         ultimos4: { type: string, example: '4242' }
     CompraRequest:
       type: object

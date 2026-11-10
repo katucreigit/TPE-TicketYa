@@ -19,11 +19,13 @@ Restricciones clave para la no doble venta:
 - `UPDATE` condicional por estado (ver `arquitectura.md`, sección 3) y columna `version` para bloqueo optimista.
 - Índices: `reserva(estado, expira_en)` para el job de vencimiento, `reserva(cliente_id, evento_id)` para el límite por cliente, `asiento(reserva_id)`.
 
+Columna `inventario_evento.agotado_notificado` (`boolean`, nullable; aún no figura en el diagrama): último valor de agotado que ms-eventos confirmó. `NULL` significa que todavía no se notificó nada. Si difiere del estado real (lugares libres = 0), el job reintenta el aviso.
+
 ## 3. ms-ventas (`db_ventas`)
 
 ![Diagrama entidad-relación de ms-ventas](TicketYa-DB-Ventas-der.png)
 
-Restricciones: `UNIQUE(cliente_id, idempotency_key)` en `compra`; `UNIQUE(codigo_qr)` en `entrada`; una sola devolución activa por entrada (validado en la lógica); `UNIQUE(entrada_id, tipo)` en `reintegro` (a lo sumo un reintegro de cada tipo por entrada), lo que hace idempotente la cancelación del evento; un reintento de reintegro fallido reutiliza el registro existente.
+Restricciones: `UNIQUE(cliente_id, idempotency_key)` en `compra`; `UNIQUE(codigo_qr)` en `entrada`; una sola devolución activa por entrada (validado en la lógica); `UNIQUE(entrada_id, tipo)` en `reintegro` (a lo sumo un reintegro de cada tipo por entrada), lo que hace idempotente la cancelación del evento; un reintento de reintegro fallido reutiliza el registro existente. La clave de cobro que se envía a la pasarela se deriva del `id` de la compra, por lo que no necesita una columna propia.
 
 ## 4. Relaciones entre servicios y entidades solapadas
 

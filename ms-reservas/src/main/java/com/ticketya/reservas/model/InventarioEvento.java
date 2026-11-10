@@ -31,6 +31,13 @@ public class InventarioEvento {
     @Column(name = "max_por_cliente", nullable = false)
     private int maxPorCliente;
 
+    /**
+     * Ultimo valor de agotado que ms-eventos confirmo. Null: todavia no se notifico nada.
+     * Si difiere del estado real, el job reintenta el aviso.
+     */
+    @Column(name = "agotado_notificado")
+    private Boolean agotadoNotificado;
+
     @Column(name = "creado_en", nullable = false, updatable = false)
     private LocalDateTime creadoEn;
 

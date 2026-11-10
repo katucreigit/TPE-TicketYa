@@ -91,9 +91,13 @@ No existe una transacción que abarque los tres servicios, así que ms-ventas co
 |---|---|---|
 | 1 | Registrar compra `PENDIENTE` (clave de idempotencia) | Ninguna |
 | 2 | Verificar la reserva en ms-reservas (vigente, del cliente) | Compra `FALLIDA`, `410` o `403`; no se cobra |
-| 3 | Cobrar en la pasarela | Rechazo: liberar reserva y compra `RECHAZADA` (`402`) |
+| 3 | Cobrar en la pasarela con una clave derivada del id de la compra | Rechazo: liberar reserva y compra `RECHAZADA` (`402`). Sin respuesta: compra `PENDIENTE` (`504`), se reintenta con la misma clave |
 | 4 | Confirmar reserva en ms-reservas | Si venció: reembolsar el pago, compra `FALLIDA` (`410`) |
 | 5 | Emitir entradas con QR y compra `APROBADA` | Si falla la base: reintentar con la misma clave; si no se puede, reembolsar y liberar |
+
+**Cobro con resultado incierto.** Si la pasarela no responde después de recibir el cobro, no se sabe si cobró. Para que reintentar sea seguro, ms-ventas envía siempre la misma clave de cobro, derivada del id de la compra, y la pasarela devuelve el resultado original si recibe dos veces la misma clave. Por eso la compra queda `PENDIENTE` (no `FALLIDA`): el reintento con la misma `Idempotency-Key` reutiliza la misma compra y la misma clave, y el cliente no paga dos veces.
+
+**Limitación conocida (mejora prevista para la Entrega 2).** Si tras un timeout el cliente no reintenta y la pasarela había cobrado, el cobro queda sin entradas. La solución completa pertenece a la resiliencia de la Entrega 2: estado `PAGO_INCIERTO`, consulta del estado del cobro a la pasarela antes de reintentar, estado `COBRADO` como punto de reanudación tras el cobro, `REEMBOLSO_PENDIENTE` para reembolsos fallidos y un proceso de reconciliación que resuelva las compras sin terminar.
 
 El detalle gráfico está en `secuencia-compra.md`.
 
@@ -111,7 +115,7 @@ El detalle gráfico está en `secuencia-compra.md`.
 2. **Identidad sin JWT (E1).** El usuario viaja en `X-User-Id` y su rol en `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `ACCESO`). Cada servicio valida el rol con un filtro simple; en E2 se reemplaza por JWT.
 3. **Límite por cliente en ms-reservas.** Se controla ahí porque conoce reservas activas y lugares vendidos por cliente y evento. El valor (`maxPorCliente`, por defecto 4) se define en el evento y se copia al inventario al publicar.
 4. **Asientos pre-generados al publicar.** Simplifica la reserva atómica (`UPDATE` condicional) a costa de insertar una fila por asiento al publicar; para un estadio de 50.000 lugares se hace en lotes.
-5. **Pasarela mock.** Decide por el token de pago: `tok_ok` aprueba, `tok_rechazado` rechaza, `tok_timeout` simula fallo de la pasarela. Los reintegros también son simulados.
+5. **Pasarela mock.** Decide por el token de pago: `tok_ok` aprueba, `tok_rechazado` rechaza, `tok_timeout` simula que la pasarela cobró pero no respondió a tiempo. La pasarela mock recibe una clave de cobro y, si la repite, devuelve el resultado original sin cobrar de nuevo. Los reintegros también son simulados.
 6. **Precios y fecha.** ms-ventas los obtiene de ms-eventos al comprar y los guarda como snapshot en la compra y en la entrada (necesita la fecha para la regla de 72 horas).
 7. **Código QR.** `codigoQr` es un UUID aleatorio, único por entrada; la imagen PNG puede generarse con ZXing en la capa de presentación.
 8. **Relevancia en la búsqueda.** Versión simplificada: coincidencia de `q` en nombre, descripción y participantes, y luego cercanía de la fecha.

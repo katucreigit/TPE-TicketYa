@@ -283,22 +283,12 @@ public EventoResponse publicar(Long eventoId, Long organizadorId) {
         );
     }
 
-    Set<Long> sectoresConPrecio = new HashSet<>();
-
-evento.getSectores().forEach(es ->
-        sectoresConPrecio.add(es.getSector().getId())
-);
-
-boolean faltaPrecio = evento.getLugar().getSectores().isEmpty()
-        || evento.getLugar().getSectores().stream()
-        .anyMatch(sector -> !sectoresConPrecio.contains(sector.getId()));
-
-if (faltaPrecio) {
-    throw new BusinessRuleException(
-            "SIN_PRECIOS",
-            "Todos los sectores del lugar deben tener un precio configurado."
-    );
-}
+    if (evento.getSectores().isEmpty()) {
+        throw new BusinessRuleException(
+                "SIN_PRECIOS",
+                "Debe configurar al menos un sector con precio."
+        );
+    }
 
     List<InventarioRequest.Sector> sectores = evento.getSectores()
             .stream()

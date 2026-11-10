@@ -12,10 +12,14 @@ spring:
     hibernate:
       ddl-auto: update
     open-in-view: false
+    defer-datasource-initialization: true
     properties:
       hibernate:
         jdbc:
           time_zone: UTC
+  sql:
+    init:
+      mode: always
   jackson:
     serialization:
       write-dates-as-timestamps: false

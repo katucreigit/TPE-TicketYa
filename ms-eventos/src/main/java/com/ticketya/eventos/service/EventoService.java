@@ -530,11 +530,14 @@ public EventoResponse reanudar(Long eventoId, String rol) {
             case "precio" -> comparador = java.util.Comparator.comparing(
                     this::obtenerPrecioMinimo,
                     java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
-            );
+            ).thenComparing(Evento::getFechaHora)
+             .thenComparingLong(Evento::getId);
             case "relevancia" -> comparador = java.util.Comparator
                     .comparingInt((Evento e) -> puntuacionRelevancia(e, textoBusqueda))
-                    .thenComparing(Evento::getFechaHora);
-            default -> comparador = java.util.Comparator.comparing(Evento::getFechaHora);
+                    .thenComparing(Evento::getFechaHora)
+                    .thenComparingLong(Evento::getId);
+            default -> comparador = java.util.Comparator.comparing(Evento::getFechaHora)
+                    .thenComparingLong(Evento::getId);
         }
 
         if ("desc".equals(dir)) {
@@ -590,10 +593,13 @@ public EventoResponse reanudar(Long eventoId, String rol) {
         boolean coincideDescripcion = evento.getDescripcion() != null
                 && evento.getDescripcion().toLowerCase().contains(texto);
 
+        boolean coincideTipo = evento.getTipo() != null
+                && evento.getTipo().name().toLowerCase().contains(texto);
+
         boolean coincideParticipante = evento.getParticipantes().stream()
                 .anyMatch(p -> p.getNombre().toLowerCase().contains(texto));
 
-        return coincideNombre || coincideDescripcion || coincideParticipante;
+        return coincideNombre || coincideDescripcion || coincideTipo || coincideParticipante;
     }
 
     private int puntuacionRelevancia(Evento evento, String texto) {
@@ -607,15 +613,15 @@ public EventoResponse reanudar(Long eventoId, String rol) {
         if (nombre.startsWith(texto)) return 1;
         if (nombre.contains(texto)) return 2;
 
-        if (evento.getDescripcion() != null
-                && evento.getDescripcion().toLowerCase().contains(texto)) {
-            return 3;
-        }
-
         boolean coincideParticipante = evento.getParticipantes().stream()
                 .anyMatch(p -> p.getNombre().toLowerCase().contains(texto));
 
-        if (coincideParticipante) return 4;
+        if (coincideParticipante) return 3;
+
+        if (evento.getDescripcion() != null
+                && evento.getDescripcion().toLowerCase().contains(texto)) {
+            return 4;
+        }
 
         return 5;
     }

@@ -8,12 +8,9 @@ spring:
     gateway:
       server:
         webflux:
-          # El gateway quita el prefijo /api (StripPrefix=1) y reenvia los headers
-          # X-User-Id, X-User-Rol e Idempotency-Key tal cual.
-          # /internal/** no tiene ruta, por lo que responde 404.
+          # El gateway quita el prefijo /api (StripPrefix=1) y reenvía los headers.
+          # /internal/** no tiene ruta.
           routes:
-            # Rutas de ms-reservas que comparten el prefijo /api/eventos/:
-            # deben declararse ANTES que la ruta general de eventos.
             - id: reservas-disponibilidad
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
               order: 0
@@ -21,6 +18,7 @@ spring:
                 - Path=/api/eventos/*/disponibilidad,/api/eventos/*/sectores/*/asientos
               filters:
                 - StripPrefix=1
+
             - id: reservas
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
               order: 1
@@ -28,6 +26,7 @@ spring:
                 - Path=/api/reservas,/api/reservas/**
               filters:
                 - StripPrefix=1
+
             - id: eventos
               uri: ${MS_EVENTOS_URL:http://localhost:8081}
               order: 2
@@ -35,6 +34,7 @@ spring:
                 - Path=/api/lugares,/api/lugares/**,/api/eventos,/api/eventos/**
               filters:
                 - StripPrefix=1
+
             - id: ventas
               uri: ${MS_VENTAS_URL:http://localhost:8083}
               order: 3
@@ -44,6 +44,9 @@ spring:
                 - StripPrefix=1
 
 management:
+  endpoint:
+    gateway:
+      access: read-only
   endpoints:
     web:
       exposure:

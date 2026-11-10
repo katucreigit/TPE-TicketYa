@@ -8,13 +8,13 @@
 ## 2. Integraciones
 
 - [x] 2.1 Cliente HTTP a ms-reservas (validar, confirmar, liberar).
-- [ ] 2.2 Cliente HTTP a ms-eventos para estado, precios y fecha del evento.
+- [x] 2.2 Cliente HTTP a ms-eventos para estado, precios y fecha del evento.
 - [x] 2.3 Servicio de pasarela mock con los tres tokens, que recibe una clave de cobro y devuelve el resultado original si se repite.
 
 ## 3. Compra
 
 - [x] 3.1 Endpoint POST /compras con Idempotency-Key obligatoria.
-- [ ] 3.2 Orquestación de la saga con compensaciones y reembolso.
+- [x] 3.2 Orquestación de la saga con compensaciones y reembolso.
 - [ ] 3.3 Derivar la clave de cobro del id de la compra y mantener la compra PENDIENTE tras un 502 o 504.
 - [ ] 3.4 Emisión de entradas con QR único.
 - [ ] 3.5 Endpoints de consulta de compras y entradas del cliente.

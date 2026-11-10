@@ -232,10 +232,10 @@ Criterios de aceptación:
 **Como** cliente, **quiero** poder reintentar el pago si se cortó mi conexión, **para** no pagar dos veces ni perder mis entradas.
 
 Criterios de aceptación:
-- **Dado** que envío `POST /compras` con un `Idempotency-Key`, **cuando** repito la misma solicitud con la misma clave, **entonces** recibo la respuesta original (`200` o la del primer intento) y no se genera un segundo cobro ni segundas entradas.
+- **Dado** que envío `POST /compras` con un `Idempotency-Key`, **cuando** repito la misma solicitud con la misma clave, **entonces** recibo la misma respuesta que en el primer intento (mismo codigo y cuerpo) y no se genera un segundo cobro ni segundas entradas.
 - **Dado** la misma clave con un cuerpo distinto, **cuando** envío la solicitud, **entonces** recibo `422`.
 - **Dado** que no envío `Idempotency-Key`, **cuando** pago, **entonces** recibo `400`.
-- **Dado** dos solicitudes simultáneas con la misma clave, **cuando** se procesan, **entonces** solo una ejecuta el cobro.
+- **Dado** dos solicitudes simultáneas con la misma clave, **cuando** se procesan, **entonces** solo una ejecuta el cobro y la otra recibe `409` Conflict.
 - **Dado** una clave de idempotencia, **cuando** se guarda, **entonces** queda asociada al cliente y a la operación, y se persiste junto con su resultado en la base (no solo en memoria).
 - **Dado** una repetición de la solicitud, **cuando** se procesa, **entonces** devuelve el resultado original sin crear otra compra ni otras entradas.
 - **Dado** una compra `PENDIENTE` tras una falla de la pasarela, **cuando** repito con la misma clave, **entonces** se reanuda esa misma compra con su misma clave de cobro (US-12) y no se crea otra.

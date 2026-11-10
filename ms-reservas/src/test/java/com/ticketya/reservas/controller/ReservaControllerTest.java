@@ -298,6 +298,28 @@ class ReservaControllerTest {
         }
 
         @Test
+        void consultarUnaPendienteExpiradaQueElJobNoProcesoInformaVencida() throws Exception {
+            UUID id = idDe(reservar("101", cantidad(2)).andExpect(status().isCreated()));
+            expirar(id);
+
+            mvc.perform(get("/reservas/" + id).header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.estado").value("VENCIDA"));
+
+            // Solo cambia lo que se informa: la fila sigue PENDIENTE hasta que corra el job.
+            assertThat(estado(id)).isEqualTo("PENDIENTE");
+        }
+
+        @Test
+        void consultarUnaPendienteVigenteRecienCreadaInformaPendiente() throws Exception {
+            UUID id = idDe(reservar("101", cantidad(1)).andExpect(status().isCreated()));
+
+            mvc.perform(get("/reservas/" + id).header("X-User-Id", "101").header("X-User-Rol", "CLIENTE"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.estado").value("PENDIENTE"));
+        }
+
+        @Test
         void cancelarUnaReservaVencidaResponde204SinDevolverElCupoOtraVez() throws Exception {
             UUID id = idDe(reservar("101", cantidad(3)).andExpect(status().isCreated()));
             expirar(id);

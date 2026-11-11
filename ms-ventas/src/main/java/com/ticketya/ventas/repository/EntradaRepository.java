@@ -11,6 +11,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,6 +27,15 @@ public interface EntradaRepository extends JpaRepository<Entrada, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM Entrada e JOIN FETCH e.compra WHERE e.id = :id")
     Optional<Entrada> bloquearConCompra(@Param("id") UUID id);
+
+    /**
+     * SELECT ... FOR UPDATE de las entradas de un evento en un estado, ordenadas por id para que dos cancelaciones
+     * simultaneas tomen los bloqueos en el mismo orden. Serializa la cancelacion con las solicitudes de devolucion,
+     * que bloquean la misma fila.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT e FROM Entrada e WHERE e.eventoId = :eventoId AND e.estado = :estado ORDER BY e.id")
+    List<Entrada> bloquearPorEventoYEstado(@Param("eventoId") Long eventoId, @Param("estado") EstadoEntrada estado);
 
     @Query("""
             SELECT e FROM Entrada e

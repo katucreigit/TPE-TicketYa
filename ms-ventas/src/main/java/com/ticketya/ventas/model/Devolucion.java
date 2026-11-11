@@ -50,6 +50,13 @@ public class Devolucion {
     @Column(name = "resuelta_en")
     private LocalDateTime resueltaEn;
 
+    /**
+     * True cuando ms-reservas ya libero el lugar. Al aprobar de nuevo una devolucion EN_PROCESO no se vuelve a
+     * llamar: la devolucion de cupo de un sector no numerado no es idempotente en ms-reservas.
+     */
+    @Column(name = "lugar_liberado", nullable = false, columnDefinition = "boolean default false")
+    private boolean lugarLiberado;
+
     @OneToOne(mappedBy = "devolucion")
     private Reintegro reintegro;
 

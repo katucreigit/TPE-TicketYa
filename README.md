@@ -5,7 +5,11 @@ Trabajo Práctico Especial de Arquitectura Web (TUDAI), **Entrega 1**.
 
 ## Integrantes
 
-- Completar con nombre y apellido de los cinco integrantes del grupo.
+-Katrina Creimerman
+-Facundo Napp
+-Geronimo Moroni
+-Fernando Barragán
+-Benjamin Herrera
 
 ## Alcance de la Entrega 1
 

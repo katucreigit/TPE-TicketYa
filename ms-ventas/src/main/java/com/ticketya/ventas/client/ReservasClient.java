@@ -17,8 +17,6 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
-import java.time.Clock;
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
@@ -35,12 +33,10 @@ public class ReservasClient {
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
-    private final Clock clock;
 
     @Autowired
     public ReservasClient(RestClient.Builder builder,
                           ObjectMapper objectMapper,
-                          Clock clock,
                           @Value("${ticketya.services.reservas-url}") String reservasUrl,
                           @Value("${ticketya.services.reservas-timeout-ms:3000}") int timeoutMs) {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -48,22 +44,22 @@ public class ReservasClient {
         requestFactory.setReadTimeout(timeoutMs);
         this.restClient = builder.baseUrl(reservasUrl).requestFactory(requestFactory).build();
         this.objectMapper = objectMapper;
-        this.clock = clock;
     }
 
     /** Para pruebas: permite inyectar un {@link RestClient} ya configurado. */
-    ReservasClient(RestClient restClient, ObjectMapper objectMapper, Clock clock) {
+    ReservasClient(RestClient restClient, ObjectMapper objectMapper) {
         this.restClient = restClient;
         this.objectMapper = objectMapper;
-        this.clock = clock;
     }
 
     /**
-     * Consulta la reserva y verifica que el cliente sea el dueno y que siga PENDIENTE y vigente.
+     * Consulta la reserva y verifica que el cliente sea el dueno y que siga PENDIENTE. La vigencia la decide
+     * ms-reservas con el reloj de su base: una PENDIENTE ya expirada se informa como VENCIDA. ms-ventas no compara
+     * expiraEn contra un reloj propio.
      *
      * @throws NotFoundException   (404) la reserva no existe
      * @throws ForbiddenException  (403) pertenece a otro cliente
-     * @throws GoneException       (410) esta VENCIDA o su fecha de expiracion ya paso
+     * @throws GoneException       (410) ms-reservas la informa VENCIDA
      * @throws ConflictException   (409 ESTADO_INVALIDO) esta LIBERADA o CONFIRMADA
      */
     public ReservaRemota validar(UUID reservaId, String clienteId) {
@@ -84,9 +80,6 @@ public class ReservasClient {
         }
         if ("LIBERADA".equals(estado) || "CONFIRMADA".equals(estado)) {
             throw ConflictException.estadoInvalido("La reserva " + reservaId + " esta " + estado);
-        }
-        if (reserva.expiraEn() == null || !reserva.expiraEn().isAfter(LocalDateTime.now(clock))) {
-            throw new GoneException("La reserva vencio. No se realizo ningun cobro.");
         }
         return reserva;
     }

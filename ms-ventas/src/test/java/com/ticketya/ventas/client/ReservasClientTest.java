@@ -16,9 +16,6 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,7 +30,6 @@ class ReservasClientTest {
 
     private static final String BASE = "http://ms-reservas";
     private static final UUID ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    private static final Clock AHORA = Clock.fixed(Instant.parse("2026-11-10T17:00:00Z"), ZoneOffset.UTC);
 
     private MockRestServiceServer server;
     private ReservasClient client;
@@ -42,7 +38,7 @@ class ReservasClientTest {
     void setUp() {
         RestClient.Builder builder = RestClient.builder().baseUrl(BASE);
         server = MockRestServiceServer.bindTo(builder).build();
-        client = new ReservasClient(builder.build(), new ObjectMapper(), AHORA);
+        client = new ReservasClient(builder.build(), new ObjectMapper());
     }
 
     private static String reservaJson(String estado, String expiraEn) {
@@ -77,11 +73,24 @@ class ReservasClientTest {
     }
 
     @Test
-    void validarReservaConFechaDeExpiracionPasadaResponde410() {
+    void validarReservaInformadaVencidaResponde410AunqueExpiraEnParezcaFuturo() {
+        // ms-reservas informa VENCIDA (PENDIENTE expirada segun su base): decide el estado, no expiraEn.
         server.expect(requestTo(BASE + "/reservas/" + ID))
-                .andRespond(withSuccess(reservaJson("PENDIENTE", "2026-11-10T16:59:59"), MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess(reservaJson("VENCIDA", "2099-01-01T00:00:00"), MediaType.APPLICATION_JSON));
 
-        assertThrows(GoneException.class, () -> client.validar(ID, "cli-100"));
+        GoneException ex = assertThrows(GoneException.class, () -> client.validar(ID, "cli-100"));
+        assertEquals("RESERVA_VENCIDA", ex.getCode());
+    }
+
+    @Test
+    void validarReservaPendienteNoComparaExpiraEnContraUnRelojPropio() {
+        // Regresion: expiraEn llega en el huso de la JVM de ms-reservas, sin offset (p. ej. UTC-3 => 3 h "atrasado"
+        // respecto de UTC). Si ms-reservas la informa PENDIENTE, sigue vigente y no debe responder 410.
+        server.expect(requestTo(BASE + "/reservas/" + ID))
+                .andRespond(withSuccess(reservaJson("PENDIENTE", "2026-11-10T12:10:00"), MediaType.APPLICATION_JSON));
+
+        ReservaRemota r = assertDoesNotThrow(() -> client.validar(ID, "cli-100"));
+        assertEquals("PENDIENTE", r.estado());
     }
 
     @Test

@@ -142,20 +142,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/eventos/:{eventoId}/precios",
+              "raw": "{{baseUrl}}/eventos/{{eventoId}}/precios",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "eventos",
-                ":{eventoId}",
+                "{{eventoId}}",
                 "precios"
-              ],
-              "variable": [
-                {
-                  "key": "{eventoId}",
-                  "value": "{{{eventoId}}}"
-                }
               ]
             },
             "body": {
@@ -195,20 +189,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/eventos/:{eventoId}/publicar",
+              "raw": "{{baseUrl}}/eventos/{{eventoId}}/publicar",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "eventos",
-                ":{eventoId}",
+                "{{eventoId}}",
                 "publicar"
-              ],
-              "variable": [
-                {
-                  "key": "{eventoId}",
-                  "value": "{{{eventoId}}}"
-                }
               ]
             }
           },
@@ -231,20 +219,14 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/eventos/:{eventoId}/disponibilidad",
+              "raw": "{{baseUrl}}/eventos/{{eventoId}}/disponibilidad",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "eventos",
-                ":{eventoId}",
+                "{{eventoId}}",
                 "disponibilidad"
-              ],
-              "variable": [
-                {
-                  "key": "{eventoId}",
-                  "value": "{{{eventoId}}}"
-                }
               ]
             }
           },
@@ -478,20 +460,14 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/devoluciones/:{devolucionId}/aprobar",
+              "raw": "{{baseUrl}}/devoluciones/{{devolucionId}}/aprobar",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "devoluciones",
-                ":{devolucionId}",
+                "{{devolucionId}}",
                 "aprobar"
-              ],
-              "variable": [
-                {
-                  "key": "{devolucionId}",
-                  "value": "{{{devolucionId}}}"
-                }
               ]
             }
           },
@@ -1532,7 +1508,7 @@
                 }
               }
             },
-            "description": "Rol `CLIENTE`. Orquesta: verifica la reserva, cobra en la pasarela (mock), confirma la reserva y emite\nuna entrada con `codigoQr` único por lugar. Si el pago es rechazado libera los lugares (`402`); si la reserva\nvenció no se cobra (`410`); si venció durante el cobro se reembolsa el pago (`410`).\n\n**Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original\n(`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`."
+            "description": "Rol `CLIENTE`. Orquesta: verifica la reserva, cobra en la pasarela (mock), confirma la reserva y emite\nuna entrada con `codigoQr` único por lugar. Si el pago es rechazado libera los lugares (`402`); si la reserva\nvenció no se cobra (`410`); si venció durante el cobro se reembolsa el pago (`410`).\n\n**Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original\n(`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`.\n\n**Falla de la pasarela:** si no responde (`504`) o no se pudo conectar (`502`), la compra sigue `PENDIENTE`.\nReintentar con la misma `Idempotency-Key` reutiliza la misma compra y la misma clave de cobro, de modo que\na lo sumo se cobra una vez. Si la reserva venció, el reintento responde `410` y no se envía un nuevo cobro."
           },
           "event": [
             {
@@ -2082,7 +2058,7 @@
                 }
               ]
             },
-            "description": "La reserva pasa a `LIBERADA` y sus lugares a `LIBRE`. Idempotente."
+            "description": "La reserva pasa a `LIBERADA` y sus lugares a `LIBRE`. Idempotente sobre reservas `LIBERADA` o `VENCIDA` (200 sin cambios). Una reserva `CONFIRMADA` no se puede liberar (409 `RESERVA_CONFIRMADA`)."
           }
         },
         {
@@ -2121,7 +2097,8 @@
                   "language": "json"
                 }
               }
-            }
+            },
+            "description": "Envía `items` (sectores numerados) o `cantidad` (no numerados), nunca ambos ni ninguno. Repetir la devolución del mismo asiento responde 200 sin cambios."
           }
         },
         {
@@ -2181,7 +2158,7 @@
     },
     {
       "key": "organizadorId",
-      "value": "7"
+      "value": "1"
     },
     {
       "key": "adminId",

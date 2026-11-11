@@ -55,6 +55,13 @@ public interface ReservaRepository extends JpaRepository<Reserva, UUID> {
             + "ORDER BY id FOR UPDATE", nativeQuery = true)
     List<UUID> bloquearPendientesDeEvento(@Param("eventoId") Long eventoId);
 
+    /**
+     * true si la reserva ya expiro segun el reloj de la base (expira_en <= localtimestamp), aunque el job todavia
+     * no la haya pasado a VENCIDA. Misma comparacion que {@link #confirmar} y {@link #vencer}.
+     */
+    @Query(value = "SELECT expira_en <= localtimestamp FROM reserva WHERE id = :id", nativeQuery = true)
+    boolean expirada(@Param("id") UUID id);
+
     /** Estado confirmado en la base (sin pasar por el contexto de persistencia). */
     @Query(value = "SELECT estado FROM reserva WHERE id = :id", nativeQuery = true)
     Optional<String> estadoActual(@Param("id") UUID id);

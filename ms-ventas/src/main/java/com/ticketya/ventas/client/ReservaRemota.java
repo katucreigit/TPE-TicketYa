@@ -6,7 +6,8 @@ import java.util.UUID;
 
 /**
  * Reserva tal como la devuelve ms-reservas (schema {@code Reserva} de openapi.yaml).
- * {@code expiraEn} esta en UTC, el huso de sesion de ms-reservas. En sectores no numerados {@code items} va vacio.
+ * {@code expiraEn} llega sin offset (huso de la JVM de ms-reservas): es solo informativo, la vigencia se decide por
+ * {@code estado}. En sectores no numerados {@code items} va vacio.
  */
 public record ReservaRemota(
         UUID reservaId,

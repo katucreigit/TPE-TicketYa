@@ -179,13 +179,20 @@ public class ReservaService {
 
     // ------------------------------------------------------------------ consulta y cancelacion
 
+    /**
+     * Una PENDIENTE ya expirada segun la base (expira_en <= localtimestamp) se informa como VENCIDA aunque el job
+     * todavia no la haya procesado, para que ms-ventas decida por estado y no compare relojes.
+     */
     @Transactional(readOnly = true)
     public ReservaResponse obtener(String clienteId, UUID id) {
         Reserva reserva = buscarDelCliente(clienteId, id);
         List<AsientoRef> items = reservaItemRepository.lugaresVigentes(id).stream()
                 .map(l -> new AsientoRef(l.getFila(), l.getNumero()))
                 .toList();
-        return respuesta(reserva, items);
+        EstadoReserva estado = reserva.getEstado() == EstadoReserva.PENDIENTE && reservaRepository.expirada(id)
+                ? EstadoReserva.VENCIDA
+                : reserva.getEstado();
+        return respuesta(reserva, estado, items);
     }
 
     /**
@@ -393,7 +400,11 @@ public class ReservaService {
     }
 
     private static ReservaResponse respuesta(Reserva reserva, List<AsientoRef> items) {
+        return respuesta(reserva, reserva.getEstado(), items);
+    }
+
+    private static ReservaResponse respuesta(Reserva reserva, EstadoReserva estado, List<AsientoRef> items) {
         return new ReservaResponse(reserva.getId(), reserva.getEventoId(), reserva.getSectorId(),
-                reserva.getClienteId(), reserva.getEstado(), reserva.getCantidad(), items, reserva.getExpiraEn());
+                reserva.getClienteId(), estado, reserva.getCantidad(), items, reserva.getExpiraEn());
     }
 }

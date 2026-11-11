@@ -33,6 +33,15 @@ final class Identidad {
         return s.userId();
     }
 
+    /** Devuelve el id del administrador si los headers estan presentes y el rol es ADMIN. */
+    static String admin(String userId, String rol) {
+        Solicitante s = validarHeaders(userId, rol);
+        if (!s.esAdmin()) {
+            throw new ForbiddenException();
+        }
+        return s.userId();
+    }
+
     /** Permite rol CLIENTE o ADMIN (para consultar el detalle de una compra o entrada). */
     static Solicitante clienteOAdmin(String userId, String rol) {
         return validarHeaders(userId, rol);

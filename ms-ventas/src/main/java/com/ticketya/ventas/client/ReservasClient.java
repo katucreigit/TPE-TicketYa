@@ -1,5 +1,6 @@
 package com.ticketya.ventas.client;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticketya.ventas.exception.BadGatewayException;
@@ -10,6 +11,7 @@ import com.ticketya.ventas.exception.NotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -17,6 +19,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -103,6 +106,41 @@ public class ReservasClient {
      */
     public void liberar(UUID reservaId) {
         postInterno("/internal/reservas/{id}/liberar", reservaId);
+    }
+
+    /** Cuerpo de POST /internal/reservas/{id}/devolver: {@code items} (numerados) o {@code cantidad} (no numerados). */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record DevolucionLugares(List<ReservaRemota.Item> items, Integer cantidad) {
+
+        public static DevolucionLugares asiento(int fila, int numero) {
+            return new DevolucionLugares(List.of(new ReservaRemota.Item(fila, numero)), null);
+        }
+
+        public static DevolucionLugares cupo(int cantidad) {
+            return new DevolucionLugares(null, cantidad);
+        }
+    }
+
+    /**
+     * POST /internal/reservas/{id}/devolver: libera en ms-reservas los lugares de una devolucion aprobada.
+     * Para asientos numerados es idempotente; para cupo no numerado no lo es, por eso quien llama debe registrar
+     * que ya se libero antes de reintentar.
+     *
+     * @throws ConflictException   (409) la reserva no esta CONFIRMADA o el asiento no le pertenece
+     * @throws NotFoundException   (404) la reserva no existe
+     * @throws BadGatewayException (502) ms-reservas no responde o falla
+     */
+    public void devolver(UUID reservaId, DevolucionLugares lugares) {
+        ejecutar(() -> {
+            restClient.post()
+                    .uri("/internal/reservas/{id}/devolver", reservaId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(lugares)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, this::traducirError)
+                    .toBodilessEntity();
+            return null;
+        });
     }
 
     private void postInterno(String uri, UUID reservaId) {

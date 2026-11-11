@@ -106,5 +106,25 @@ class PasarelaPagoServiceTest {
     void reembolsoDeTransaccionInexistenteResponde404() {
         assertThrows(NotFoundException.class, () -> pasarela.reembolsar("tx-inexistente"));
     }
+
+    @Test
+    void reintegroRepetidoConLaMismaClaveNoReintegraDosVeces() {
+        String tx = pasarela.cobrar("cobro-1", "tok_ok", MONTO).transaccionId();
+
+        var primero = pasarela.reintegrar("reintegro-1", tx, new BigDecimal("750.00"));
+        var segundo = pasarela.reintegrar("reintegro-1", tx, new BigDecimal("750.00"));
+        var otraEntrada = pasarela.reintegrar("reintegro-2", tx, new BigDecimal("750.00"));
+
+        assertEquals(EstadoPago.REEMBOLSADO, primero.estado());
+        assertEquals(primero, segundo);
+        assertNotEquals(primero.transaccionId(), otraEntrada.transaccionId());
+    }
+
+    @Test
+    void reintegroSinTransaccionOMontoInvalidoResponde400() {
+        assertThrows(BadRequestException.class, () -> pasarela.reintegrar("reintegro-1", null, MONTO));
+        assertThrows(BadRequestException.class, () -> pasarela.reintegrar("reintegro-1", "tx-1", BigDecimal.ZERO));
+        assertThrows(BadRequestException.class, () -> pasarela.reintegrar(" ", "tx-1", MONTO));
+    }
 }
 

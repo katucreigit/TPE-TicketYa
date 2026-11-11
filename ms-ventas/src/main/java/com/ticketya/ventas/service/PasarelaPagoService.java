@@ -37,6 +37,7 @@ public class PasarelaPagoService {
 
     private final Map<String, ResultadoCobro> cobrosPorClave = new HashMap<>();
     private final Map<String, EstadoPago> transacciones = new HashMap<>();
+    private final Map<String, ResultadoReembolso> reintegrosPorClave = new HashMap<>();
 
     /**
      * Procesa un cobro.
@@ -90,6 +91,32 @@ public class PasarelaPagoService {
         }
         transacciones.put(transaccionId, EstadoPago.REEMBOLSADO);
         return new ResultadoReembolso(transaccionId, EstadoPago.REEMBOLSADO);
+    }
+
+    /**
+     * Reintegra {@code monto} de un cobro aprobado (devolucion de una entrada). Es idempotente por
+     * {@code claveReintegro}: repetirla devuelve el mismo resultado sin reintegrar dos veces. No exige que la
+     * transaccion original siga en memoria, porque el mock pierde su estado al reiniciar ms-ventas.
+     *
+     * @throws BadRequestException (400) clave o transaccion ausente, o monto no positivo
+     */
+    public synchronized ResultadoReembolso reintegrar(String claveReintegro, String transaccionId, BigDecimal monto) {
+        if (claveReintegro == null || claveReintegro.isBlank()) {
+            throw new BadRequestException("La clave de reintegro es obligatoria");
+        }
+        ResultadoReembolso previo = reintegrosPorClave.get(claveReintegro);
+        if (previo != null) {
+            return previo;
+        }
+        if (transaccionId == null || transaccionId.isBlank()) {
+            throw new BadRequestException("La transaccion a reintegrar es obligatoria");
+        }
+        if (monto == null || monto.signum() <= 0) {
+            throw new BadRequestException("El monto debe ser positivo");
+        }
+        ResultadoReembolso resultado = new ResultadoReembolso("rf-" + UUID.randomUUID(), EstadoPago.REEMBOLSADO);
+        reintegrosPorClave.put(claveReintegro, resultado);
+        return resultado;
     }
 
     private static boolean esTokenSoportado(String token) {

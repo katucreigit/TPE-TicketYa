@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -184,6 +185,39 @@ class ReservasClientTest {
 
         ConflictException ex = assertThrows(ConflictException.class, () -> client.liberar(ID));
         assertEquals("RESERVA_CONFIRMADA", ex.getCode());
+    }
+
+    // ---- devolver ----
+
+    @Test
+    void devolverAsientoEnviaSoloItems() {
+        server.expect(requestTo(BASE + "/internal/reservas/" + ID + "/devolver"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"items\":[{\"fila\":3,\"numero\":10}]}", true))
+                .andRespond(withSuccess());
+
+        assertDoesNotThrow(() -> client.devolver(ID, ReservasClient.DevolucionLugares.asiento(3, 10)));
+        server.verify();
+    }
+
+    @Test
+    void devolverCupoEnviaSoloCantidad() {
+        server.expect(requestTo(BASE + "/internal/reservas/" + ID + "/devolver"))
+                .andExpect(content().json("{\"cantidad\":1}", true))
+                .andRespond(withSuccess());
+
+        assertDoesNotThrow(() -> client.devolver(ID, ReservasClient.DevolucionLugares.cupo(1)));
+        server.verify();
+    }
+
+    @Test
+    void devolverEnReservaNoConfirmadaResponde409() {
+        server.expect(requestTo(BASE + "/internal/reservas/" + ID + "/devolver"))
+                .andRespond(withStatus(HttpStatus.CONFLICT).contentType(MediaType.APPLICATION_JSON)
+                        .body(errorJson(409, "ESTADO_INVALIDO", "Solo se pueden devolver lugares de una reserva confirmada")));
+
+        assertThrows(ConflictException.class,
+                () -> client.devolver(ID, ReservasClient.DevolucionLugares.asiento(3, 10)));
     }
 
     // ---- fallas de comunicacion ----

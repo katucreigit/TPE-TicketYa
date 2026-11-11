@@ -29,6 +29,8 @@ springdoc:
 ticketya:
   devolucion:
     horas-minimas-antes-del-evento: 72
+    # Las fechas de los eventos son hora local sin offset: el plazo se mide en esta zona.
+    zona-horaria-eventos: America/Argentina/Buenos_Aires
   services:
     eventos-url: ${MS_EVENTOS_URL:http://localhost:8081}
     reservas-url: ${MS_RESERVAS_URL:http://localhost:8082}

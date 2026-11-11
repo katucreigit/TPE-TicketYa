@@ -5,11 +5,11 @@ Trabajo Práctico Especial de Arquitectura Web (TUDAI), **Entrega 1**.
 
 ## Integrantes
 
--Katrina Creimerman
--Facundo Napp
--Geronimo Moroni
--Fernando Barragán
--Benjamin Herrera
+- Katrina Creimerman
+- Facundo Napp
+- Geronimo Moroni
+- Fernando Barragán
+- Benjamin Herrera
 
 ## Alcance de la Entrega 1
 
@@ -114,7 +114,10 @@ La pasarela es un mock que decide según el token del medio de pago:
 Cada servicio se prueba por separado:
 
 ```
+cd ms-eventos  && mvn test
 cd ms-reservas && mvn test
+cd ms-ventas   && mvn test
+cd api-gateway && mvn test
 ```
 
 La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa.
@@ -127,7 +130,37 @@ La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el
 | [`docs/arquitectura.md`](docs/arquitectura.md) | Microservicios, gateway, anti doble venta, saga, estados y decisiones |
 | [`docs/modelo-datos.md`](docs/modelo-datos.md) | Modelo de datos por servicio y datos compartidos |
 | [`docs/secuencia-compra.md`](docs/secuencia-compra.md) | Diagramas de secuencia de la compra y el vencimiento |
+| [`docs/diagramas.md`](docs/diagramas.md) | Diagramas en Mermaid: arquitectura, modelo de datos, estados y secuencias |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Contrato de la API en OpenAPI 3.0 |
+
+## Datos de prueba
+
+- `ms-eventos` carga al iniciar un conjunto inicial: organizadores (ids 1 y 2), lugares con sus sectores y algunos eventos.
+- Para pagar se usan los tokens de la pasarela simulada: `tok_ok`, `tok_rechazado` y `tok_timeout` (ver la sección de la pasarela).
+- Los headers de ejemplo son `X-User-Id: 1` con `X-User-Rol` en `CLIENTE`, `ORGANIZADOR` o `ADMIN`.
+
+## Colección de requests (Postman)
+
+En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collection.json) hay una colección agrupada por recurso:
+
+- La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución. Se ejecuta con el Runner de Postman y pasa las 15 pruebas.
+- Hay carpetas para casos de error y para los endpoints internos entre servicios.
+
+Para usarla: importarla en Postman, levantar los 4 servicios y ejecutar la carpeta con el Runner.
+
+## Uso de inteligencia artificial
+
+Usamos Claude (Anthropic) como asistente durante el trabajo:
+
+- Claude Code, en la terminal, para implementar los microservicios y sus pruebas siguiendo las especificaciones de OpenSpec.
+- El chat de Claude para planificar, revisar el código, diagramas y redactar la documentación.
+
+Las especificaciones se escribieron antes del código y guiaron lo que generó la IA. El equipo revisó el código, corrió las pruebas y verificó el flujo completo contra bases PostgreSQL reales.
+
+## Estado y limitaciones conocidas
+
+- `ms-eventos` valida que el organizador exista en su tabla `organizador` (hay datos de prueba con los ids 1 y 2). Las historias de usuario no lo exigen; es una decisión de implementación del servicio.
+- La cancelación masiva de un evento (`POST /internal/eventos/{eventoId}/cancelacion` en `ms-ventas`) reintegra las entradas emitidas. Todavía no trata las entradas con una devolución solicitada ni una compra con el pago en curso al momento de cancelar.
 
 ## Metodología: desarrollo guiado por especificaciones
 
@@ -173,6 +206,7 @@ ms-reservas/       Microservicio de reservas
 ms-ventas/         Microservicio de ventas
 docs/              Historias de usuario, arquitectura, modelo de datos y OpenAPI
 openspec/          Especificaciones y cambios
+postman/           Colección de requests
 docker-compose.yml Bases de datos PostgreSQL
 AGENTS.md          Convenciones del proyecto
 ```

@@ -123,6 +123,7 @@ La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el
 | [`docs/arquitectura.md`](docs/arquitectura.md) | Microservicios, gateway, anti doble venta, saga, estados y decisiones |
 | [`docs/modelo-datos.md`](docs/modelo-datos.md) | Modelo de datos por servicio y datos compartidos |
 | [`docs/secuencia-compra.md`](docs/secuencia-compra.md) | Diagramas de secuencia de la compra y el vencimiento |
+| [`docs/diagramas.md`](docs/diagramas.md) | Diagramas en Mermaid: arquitectura, modelo de datos, estados y secuencias |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Contrato de la API en OpenAPI 3.0 |
 
 ## Metodología: desarrollo guiado por especificaciones

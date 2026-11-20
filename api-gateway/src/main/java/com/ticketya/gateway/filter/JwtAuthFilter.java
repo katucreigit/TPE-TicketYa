@@ -47,11 +47,14 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             String userId = claims.getSubject();
             String rol = claims.get("rol", String.class);
 
-            // Reemplaza los headers X-User-Id y X-User-Rol para los microservicios downstream
+            // Reemplaza (no suma) los headers X-User-Id y X-User-Rol para los microservicios downstream
             ServerWebExchange mutated = exchange.mutate()
-                    .request(r -> r
-                            .header("X-User-Id", userId)
-                            .header("X-User-Rol", rol))
+                    .request(r -> r.headers(headers -> {
+                        headers.remove("X-User-Id");
+                        headers.remove("X-User-Rol");
+                        headers.add("X-User-Id", userId);
+                        headers.add("X-User-Rol", rol);
+                    }))
                     .build();
 
             return chain.filter(mutated);

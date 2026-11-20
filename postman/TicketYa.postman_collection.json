@@ -2,24 +2,134 @@
   "info": {
     "name": "TicketYa",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Entrega 1. Gateway en {{baseUrl}}. Con los servicios corriendo, ejecutar la carpeta \"Flujo completo\" en orden (Run). La carpeta \"Casos de error\" se corre despues del flujo. Las variables (ids) se completan solas."
+    "description": "Entrega 2. Gateway en {{baseUrl}}. Correr primero los pasos 0a y 0b para hacer login y guardar los tokens. Luego ejecutar el flujo completo en orden con el Runner."
   },
   "item": [
     {
       "name": "Flujo completo (en orden)",
       "item": [
         {
+          "name": "0c. Login ADMIN (guarda token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('tokenAdmin', pm.response.json().token);",
+                  "pm.collectionVariables.set('adminId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0b. Login CLIENTE (guarda token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('tokenCliente', pm.response.json().token);",
+                  "pm.collectionVariables.set('clienteId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "0a. Login ORGANIZADOR (guarda token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('tokenOrganizador', pm.response.json().token);",
+                  "pm.collectionVariables.set('organizadorId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "1. Crear lugar (ORGANIZADOR)",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -78,12 +188,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -129,12 +235,8 @@
             "method": "PUT",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -180,12 +282,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               }
             ],
             "url": {
@@ -248,12 +346,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -298,12 +392,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Idempotency-Key",
@@ -364,12 +454,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -400,12 +486,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -451,12 +533,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               }
             ],
             "url": {
@@ -495,12 +573,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId2}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -545,12 +619,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -595,12 +665,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Idempotency-Key",
@@ -657,12 +723,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -738,12 +800,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -835,12 +893,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -887,12 +941,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -1024,12 +1074,8 @@
             "method": "PUT",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -1070,12 +1116,8 @@
             "method": "PUT",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               },
               {
                 "key": "Content-Type",
@@ -1117,12 +1159,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{organizadorId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ORGANIZADOR"
+                "key": "Authorization",
+                "value": "Bearer {{tokenOrganizador}}"
               }
             ],
             "url": {
@@ -1151,12 +1189,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               }
             ],
             "url": {
@@ -1185,12 +1219,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               }
             ],
             "url": {
@@ -1219,12 +1249,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               },
               {
                 "key": "Content-Type",
@@ -1364,12 +1390,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -1403,12 +1425,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1436,12 +1454,8 @@
             "method": "DELETE",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1474,12 +1488,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Idempotency-Key",
@@ -1528,12 +1538,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1566,12 +1572,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1604,12 +1606,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1652,12 +1650,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1690,12 +1684,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               },
               {
                 "key": "Content-Type",
@@ -1729,12 +1719,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               }
             ],
             "url": {
@@ -1772,12 +1758,8 @@
             "method": "GET",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{clienteId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "CLIENTE"
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
               }
             ],
             "url": {
@@ -1805,12 +1787,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               }
             ],
             "url": {
@@ -1839,12 +1817,8 @@
             "method": "POST",
             "header": [
               {
-                "key": "X-User-Id",
-                "value": "{{adminId}}"
-              },
-              {
-                "key": "X-User-Rol",
-                "value": "ADMIN"
+                "key": "Authorization",
+                "value": "Bearer {{tokenAdmin}}"
               },
               {
                 "key": "Content-Type",
@@ -2206,6 +2180,18 @@
     },
     {
       "key": "fechaEvento",
+      "value": ""
+    },
+    {
+      "key": "tokenOrganizador",
+      "value": ""
+    },
+    {
+      "key": "tokenCliente",
+      "value": ""
+    },
+    {
+      "key": "tokenAdmin",
       "value": ""
     }
   ]

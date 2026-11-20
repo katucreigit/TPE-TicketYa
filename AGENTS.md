@@ -1,6 +1,6 @@
 # TicketYa
 
-Plataforma de venta de entradas para eventos (TPE Arquitectura Web, TUDAI). Alcance actual: Entrega 1.
+Plataforma de venta de entradas para eventos (TPE Arquitectura Web, TUDAI). Alcance actual: Entrega 2 (sistema completo).
 
 ## Estructura
 - `api-gateway`, `ms-eventos`, `ms-reservas`, `ms-ventas`: servicios Spring Boot independientes.
@@ -9,7 +9,8 @@ Plataforma de venta de entradas para eventos (TPE Arquitectura Web, TUDAI). Alca
 
 ## Stack y comandos
 - Java 21, Spring Boot 3.5.x, Maven, PostgreSQL 16.
-- Bases de datos: `docker compose up -d` (puertos 5433, 5434 y 5435).
+- Sistema completo: `docker compose up -d --build` (gateway 8080, servicios 8081 a 8083, bases 5433 a 5435).
+- Solo bases de datos (servicios desde el IDE): `docker compose up -d db-eventos db-reservas db-ventas`.
 - Por servicio: `mvn -q compile` y `mvn test`.
 - Paquete base: `com.ticketya.<servicio>`.
 
@@ -23,4 +24,3 @@ Plataforma de venta de entradas para eventos (TPE Arquitectura Web, TUDAI). Alca
 - Las reglas de negocio llevan pruebas; nunca modificar un test para que pase.
 - La garantía anti doble venta se resuelve en la base de datos, no en memoria.
 - No subir credenciales ni archivos de entorno.
-- No implementar nada de la Entrega 2 (JWT, resiliencia, observabilidad) todavía.

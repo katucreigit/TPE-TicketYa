@@ -43,10 +43,35 @@ El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
 ## Cómo ejecutar
 
-1. Levantar las bases de datos (una por servicio):
+Hay dos formas: todo el sistema en contenedores, o solo las bases en contenedores y los servicios desde el IDE.
+
+### Todo el sistema con Docker Compose
+
+Desde la raíz del repositorio:
+
+```
+docker compose up -d --build
+```
+
+Levanta 7 contenedores: las 3 bases PostgreSQL (5433, 5434 y 5435), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+
+- Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan unos segundos en iniciar: conviene esperar a que `docker compose logs -f` muestre `Started` en los cuatro antes de usar la API.
+- Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
+- `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
+
+Cada imagen también se puede construir por separado, por ejemplo:
+
+```
+docker build -t ticketya/ms-eventos ms-eventos
+```
+
+### Servicios desde el IDE
+
+1. Levantar solo las bases de datos (una por servicio):
 
    ```
-   docker compose up -d
+   docker compose up -d db-eventos db-reservas db-ventas
    ```
 
    Esto crea tres bases PostgreSQL 16 en los puertos 5433, 5434 y 5435 (usuario y contraseña `ticketya`).
@@ -68,7 +93,7 @@ Las tablas se crean automáticamente al iniciar cada servicio.
 
 ### Configuración
 
-Los valores por defecto sirven para ejecución local. Se pueden cambiar con variables de entorno:
+Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cambiar con variables de entorno; `docker-compose.yml` las define para que apunten a los nombres de servicio:
 
 | Variable | Servicio | Valor por defecto |
 |---|---|---|
@@ -146,7 +171,7 @@ En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collect
 - La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución. Se ejecuta con el Runner de Postman y pasa las 15 pruebas.
 - Hay carpetas para casos de error y para los endpoints internos entre servicios.
 
-Para usarla: importarla en Postman, levantar los 4 servicios y ejecutar la carpeta con el Runner.
+Para usarla: importarla en Postman, levantar los 4 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar la carpeta con el Runner. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
 
 ## Uso de inteligencia artificial
 
@@ -207,6 +232,6 @@ ms-ventas/         Microservicio de ventas
 docs/              Historias de usuario, arquitectura, modelo de datos y OpenAPI
 openspec/          Especificaciones y cambios
 postman/           Colección de requests
-docker-compose.yml Bases de datos PostgreSQL
+docker-compose.yml Sistema completo: bases PostgreSQL, microservicios y gateway
 AGENTS.md          Convenciones del proyecto
 ```

@@ -52,7 +52,25 @@ services:
       timeout: 5s
       retries: 10
 
+  db-auth:
+    image: postgres:16-alpine
+    container_name: ticketya-db-auth
+    environment:
+      POSTGRES_DB: db_auth
+      POSTGRES_USER: ticketya
+      POSTGRES_PASSWORD: ticketya
+    ports:
+      - "5436:5432"
+    volumes:
+      - db-auth-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketya -d db_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
 volumes:
   db-eventos-data:
   db-reservas-data:
   db-ventas-data:
+  db-auth-data:

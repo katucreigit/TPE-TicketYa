@@ -1,0 +1,18 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: ms-auth
+  datasource:
+    url: jdbc:postgresql://localhost:5436/db_auth
+    username: ticketya
+    password: ticketya
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+
+jwt:
+  secret: U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==
+  expiration-ms: 86400000

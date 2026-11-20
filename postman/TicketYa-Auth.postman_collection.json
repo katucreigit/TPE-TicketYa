@@ -1,0 +1,125 @@
+{
+  "info": {
+    "name": "TicketYa - Auth",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Register ORGANIZADOR",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/register",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"ORGANIZADOR\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Register ADMIN",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/register",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"ADMIN\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Register CLIENTE",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/register",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"CLIENTE\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Login ORGANIZADOR",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Login CLIENTE",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Login password incorrecta (espera 401)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/auth/login",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"wrongpassword\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Endpoint protegido sin token (espera 401)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/eventos",
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        }
+      }
+    },
+    {
+      "name": "Endpoint publico sin token (espera 200)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/eventos"
+      }
+    },
+    {
+      "name": "Crear evento con token (pegar token en Authorization)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{token}}" }
+        ],
+        "url": "{{baseUrl}}/eventos",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Festival Test\",\n  \"descripcion\": \"Prueba JWT\",\n  \"tipo\": \"RECITAL\",\n  \"organizadorId\": 1,\n  \"lugarId\": 1,\n  \"fechaHora\": \"2027-06-01T20:00:00\"\n}"
+        }
+      }
+    }
+  ]
+}

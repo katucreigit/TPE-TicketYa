@@ -25,7 +25,7 @@
 
 - [x] 4.1 Manejador global de errores con el formato común.
 - [x] 4.2 Verificación de headers X-User-Id y X-User-Rol.
-- [ ] 4.3 Datos de prueba de lugares y eventos.
+- [x] 4.3 Datos de prueba de lugares y eventos.
 
 ## 5. Pruebas
 

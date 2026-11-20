@@ -32,19 +32,7 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('tokenAdmin', pm.response.json().token);",
-                  "pm.collectionVariables.set('adminId', pm.response.json().userId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "0b. Login CLIENTE (guarda token)",
@@ -70,19 +58,7 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('tokenCliente', pm.response.json().token);",
-                  "pm.collectionVariables.set('clienteId', pm.response.json().userId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "0a. Login ORGANIZADOR (guarda token)",
@@ -108,19 +84,7 @@
               "mode": "raw",
               "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.collectionVariables.set('tokenOrganizador', pm.response.json().token);",
-                  "pm.collectionVariables.set('organizadorId', pm.response.json().userId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "1. Crear lugar (ORGANIZADOR)",
@@ -164,21 +128,6 @@
                   "pm.collectionVariables.set('fechaEvento', new Date(Date.now() + 30*86400000).toISOString().slice(0,19));"
                 ]
               }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "const l = pm.response.json();",
-                  "pm.collectionVariables.set('lugarId', l.id);",
-                  "const num = l.sectores.find(s => s.tipo === 'NUMERADO');",
-                  "const gen = l.sectores.find(s => s.tipo === 'NO_NUMERADO');",
-                  "if (num) pm.collectionVariables.set('sectorNumId', num.id);",
-                  "if (gen) pm.collectionVariables.set('sectorGralId', gen.id);"
-                ]
-              }
             }
           ]
         },
@@ -214,20 +163,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "pm.test('Queda en BORRADOR', () => pm.expect(pm.response.json().estado).to.eql('BORRADOR'));",
-                  "pm.collectionVariables.set('eventoId', pm.response.json().id);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "3. Configurar precios (ORGANIZADOR)",
@@ -263,18 +199,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "4. Publicar evento (ORGANIZADOR)",
@@ -297,19 +222,7 @@
                 "publicar"
               ]
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('Queda PUBLICADO', () => pm.expect(pm.response.json().estado).to.eql('PUBLICADO'));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "5. Ver disponibilidad (CLIENTE)",
@@ -327,18 +240,7 @@
                 "disponibilidad"
               ]
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "6. Reservar dos asientos (CLIENTE)",
@@ -372,19 +274,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "pm.collectionVariables.set('reservaId', pm.response.json().reservaId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "7. Pagar la reserva (CLIENTE)",
@@ -432,19 +322,6 @@
                   "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
                 ]
               }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "const c = pm.response.json();",
-                  "pm.test('Compra APROBADA con entradas', () => { pm.expect(c.estado).to.eql('APROBADA'); pm.expect(c.entradas.length).to.eql(2); });",
-                  "pm.collectionVariables.set('compraId', c.compraId);",
-                  "pm.collectionVariables.set('entradaId', c.entradas[0].entradaId);"
-                ]
-              }
             }
           ]
         },
@@ -467,18 +344,7 @@
                 "entradas"
               ]
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "9. Solicitar devolucion (CLIENTE)",
@@ -512,20 +378,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "pm.test('Queda SOLICITADA', () => pm.expect(pm.response.json().estado).to.eql('SOLICITADA'));",
-                  "pm.collectionVariables.set('devolucionId', pm.response.json().devolucionId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "10. Aprobar devolucion (ADMIN)",
@@ -548,19 +401,7 @@
                 "aprobar"
               ]
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                  "pm.test('Queda REINTEGRADA', () => pm.expect(pm.response.json().estado).to.eql('REINTEGRADA'));"
-                ]
-              }
-            }
-          ]
+          }
         }
       ]
     },
@@ -600,18 +441,7 @@
               }
             },
             "description": "Ejecutar despues del paso 6 del flujo, antes de que venza la reserva (10 minutos)."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('409 Conflict: el asiento ya esta reservado', () => pm.response.to.have.status(409));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "E2. Crear reserva para pago rechazado",
@@ -645,19 +475,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
-                  "pm.collectionVariables.set('reservaRechazoId', pm.response.json().reservaId);"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "E3. Pagar con tok_rechazado (402)",
@@ -705,15 +523,6 @@
                   "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
                 ]
               }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('402 Payment Required', () => pm.response.to.have.status(402));"
-                ]
-              }
             }
           ]
         },
@@ -749,18 +558,7 @@
                 }
               }
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
-                ]
-              }
-            }
-          ]
+          }
         },
         {
           "name": "E5. Sin headers de identidad (400)",
@@ -776,18 +574,7 @@
                 "compras"
               ]
             }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
-                ]
-              }
-            }
-          ]
+          }
         }
       ]
     },

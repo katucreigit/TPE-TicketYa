@@ -1,7 +1,7 @@
 # TicketYa
 
 Plataforma de venta de entradas para eventos, construida como microservicios con Spring Boot.
-Trabajo Práctico Especial de Arquitectura Web (TUDAI), **Entrega 1**.
+Trabajo Práctico Especial de Arquitectura Web (TUDAI), **Entrega 2**.
 
 ## Integrantes
 
@@ -11,22 +11,26 @@ Trabajo Práctico Especial de Arquitectura Web (TUDAI), **Entrega 1**.
 - Fernando Barragán
 - Benjamin Herrera
 
-## Alcance de la Entrega 1
+## Alcance de la Entrega 2 (sistema completo)
 
-- Gestión de lugares, sectores y eventos, con publicación (US-01 a US-08).
-- Búsqueda multicriterio y detalle de eventos con disponibilidad (US-09, US-10).
-- Compra con reserva temporal, pago con pasarela simulada y entradas con QR (US-11 a US-16).
-- Garantía de que un mismo lugar no se vende dos veces, con prueba de concurrencia (US-17).
-- Devoluciones y cancelación de eventos con reintegros (US-18 a US-20).
+Incluye todo lo de la Entrega 1 más:
 
-La autenticación con JWT, la fila virtual, las notificaciones y los reportes corresponden a la Entrega 2 y no están implementados.
-En esta entrega el usuario se identifica con los headers `X-User-Id` y `X-User-Rol`.
+- Autenticación y autorización con JWT y roles (ms-auth).
+- Fila virtual para eventos de alta demanda (US-xx).
+- Control de acceso con QR (US-xx).
+- Preferencias y recomendaciones de eventos (US-xx).
+- Notificaciones por email/push (US-xx).
+- Reportes para organizadores (US-xx).
+- Base NoSQL (MongoDB) para preferencias y recomendaciones.
+- Cache, resiliencia, log centralizado y comunicación asíncrona.
+- Contenedores Docker para todos los servicios con `docker-compose.yml`.
 
 ## Arquitectura
 
 | Componente | Puerto | Base de datos | Responsabilidad |
 |---|---|---|---|
-| `api-gateway` | 8080 | - | Punto de entrada único; enruta y quita el prefijo `/api` |
+| `api-gateway` | 8080 | - | Punto de entrada único; valida JWT y enruta |
+| `ms-auth` | 8084 | `db_auth` (5436) | Registro, login y emisión de tokens JWT |
 | `ms-eventos` | 8081 | `db_eventos` (5433) | Lugares, sectores, eventos, estados y búsqueda |
 | `ms-reservas` | 8082 | `db_reservas` (5434) | Inventario, reservas temporales y control de doble venta |
 | `ms-ventas` | 8083 | `db_ventas` (5435) | Compras, pagos, entradas con QR, devoluciones y reintegros |
@@ -53,10 +57,10 @@ Desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-Levanta 7 contenedores: las 3 bases PostgreSQL (5433, 5434 y 5435), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+Levanta 9 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
 
 - Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
-- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan unos segundos en iniciar: conviene esperar a que `docker compose logs -f` muestre `Started` en los cuatro antes de usar la API.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan unos segundos en iniciar: conviene esperar a que `docker compose logs -f` muestre `Started` en los cinco antes de usar la API.
 - Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
 - `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
 
@@ -71,10 +75,10 @@ docker build -t ticketya/ms-eventos ms-eventos
 1. Levantar solo las bases de datos (una por servicio):
 
    ```
-   docker compose up -d db-eventos db-reservas db-ventas
+   docker compose up -d db-eventos db-reservas db-ventas db-auth
    ```
 
-   Esto crea tres bases PostgreSQL 16 en los puertos 5433, 5434 y 5435 (usuario y contraseña `ticketya`).
+   Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436 (usuario y contraseña `ticketya`).
 
 2. Iniciar cada servicio en una terminal distinta, desde la raíz del repositorio:
 
@@ -82,6 +86,7 @@ docker build -t ticketya/ms-eventos ms-eventos
    cd ms-eventos   && mvn spring-boot:run
    cd ms-reservas  && mvn spring-boot:run
    cd ms-ventas    && mvn spring-boot:run
+   cd ms-auth      && mvn spring-boot:run
    cd api-gateway  && mvn spring-boot:run
    ```
 
@@ -97,7 +102,9 @@ Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cam
 
 | Variable | Servicio | Valor por defecto |
 |---|---|---|
-| `DB_URL`, `DB_USER`, `DB_PASSWORD` | `ms-eventos`, `ms-reservas`, `ms-ventas` | `localhost` en el puerto de su base, usuario `ticketya` |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD` | todos los ms | `localhost` en el puerto de su base, usuario `ticketya` |
+| `MS_AUTH_URL` | `api-gateway` | `http://localhost:8084` |
+| `JWT_SECRET` | `api-gateway`, `ms-auth` | Clave de desarrollo (Base64) de sus `application.yml`; tiene que ser la misma en los dos. Para otro entorno, definirla en el shell o en un `.env` sin versionar |
 | `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas` | `http://localhost:8081` |
 | `MS_RESERVAS_URL` | `api-gateway`, `ms-eventos`, `ms-ventas` | `http://localhost:8082` |
 | `MS_VENTAS_URL` | `api-gateway`, `ms-eventos` | `http://localhost:8083` |
@@ -106,23 +113,75 @@ Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cam
 
 Cada servicio publica su documentación Swagger una vez iniciado:
 
+- ms-auth: <http://localhost:8084/swagger-ui.html>
 - ms-eventos: <http://localhost:8081/swagger-ui.html>
 - ms-reservas: <http://localhost:8082/swagger-ui.html>
 - ms-ventas: <http://localhost:8083/swagger-ui.html>
 
-El contrato completo de la API pública está en [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0). Se puede abrir en Swagger Editor o importar en Postman.
+El contrato completo de la API pública está en [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0).
 
-## Identificación de usuarios
+## Autenticación con JWT
 
-Todas las operaciones llevan dos headers:
+Todos los endpoints protegidos requieren un token JWT en el header `Authorization`.
 
-| Header | Contenido |
-|---|---|
-| `X-User-Id` | Identificador del usuario |
-| `X-User-Rol` | `CLIENTE`, `ORGANIZADOR`, `ADMIN` o `ACCESO` |
+### 1. Registrar un usuario
 
-Si faltan o el rol no es válido, la respuesta es `400`; si el rol no corresponde a la operación, `403`.
-El pago (`POST /compras`) exige además el header `Idempotency-Key`.
+```
+POST http://localhost:8080/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "cliente@example.com",
+  "password": "miPassword123",
+  "rol": "CLIENTE"
+}
+```
+
+Roles disponibles: `CLIENTE`, `ORGANIZADOR`, `ADMIN`, `PERSONAL_ACCESO`.
+
+Respuesta:
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "userId": 1,
+  "rol": "CLIENTE"
+}
+```
+
+### 2. Iniciar sesión
+
+```
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "cliente@example.com",
+  "password": "miPassword123"
+}
+```
+
+Respuesta igual a la del registro.
+
+### 3. Usar el token
+
+Incluir el token en el header `Authorization` de cada request:
+
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+```
+
+El gateway valida el token y propaga automáticamente los headers `X-User-Id` y `X-User-Rol` a los microservicios. No es necesario enviarlos manualmente.
+
+### Rutas públicas (no requieren token)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST` | `/api/auth/register` | Registro de usuario |
+| `POST` | `/api/auth/login` | Login |
+| `GET` | `/api/eventos/**` | Buscar y ver eventos |
+| `GET` | `/api/lugares/**` | Ver lugares |
+
+Cualquier otra ruta sin token devuelve `401 Unauthorized`.
 
 ## Pasarela de pago simulada
 
@@ -139,6 +198,7 @@ La pasarela es un mock que decide según el token del medio de pago:
 Cada servicio se prueba por separado:
 
 ```
+cd ms-auth     && mvn test
 cd ms-eventos  && mvn test
 cd ms-reservas && mvn test
 cd ms-ventas   && mvn test
@@ -161,17 +221,18 @@ La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el
 ## Datos de prueba
 
 - `ms-eventos` carga al iniciar un conjunto inicial: organizadores (ids 1 y 2), lugares con sus sectores y algunos eventos.
-- Para pagar se usan los tokens de la pasarela simulada: `tok_ok`, `tok_rechazado` y `tok_timeout` (ver la sección de la pasarela).
-- Los headers de ejemplo son `X-User-Id: 1` con `X-User-Rol` en `CLIENTE`, `ORGANIZADOR` o `ADMIN`.
+- Para pagar se usan los tokens de la pasarela simulada: `tok_ok`, `tok_rechazado` y `tok_timeout`.
+- Para probar sin registrarse, usar los datos de ejemplo de la colección Postman (ya incluyen el flujo de login).
 
 ## Colección de requests (Postman)
 
 En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collection.json) hay una colección agrupada por recurso:
 
-- La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución. Se ejecuta con el Runner de Postman y pasa las 15 pruebas.
+- La carpeta **Auth** contiene los requests de registro y login. El token se guarda automáticamente en una variable de entorno y se usa en el resto de los requests.
+- La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: registrarse, crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución.
 - Hay carpetas para casos de error y para los endpoints internos entre servicios.
 
-Para usarla: importarla en Postman, levantar los 4 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar la carpeta con el Runner. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
+Para usarla: importarla en Postman, levantar los 5 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar la carpeta con el Runner. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
 
 ## Uso de inteligencia artificial
 
@@ -184,8 +245,8 @@ Las especificaciones se escribieron antes del código y guiaron lo que generó l
 
 ## Estado y limitaciones conocidas
 
-- `ms-eventos` valida que el organizador exista en su tabla `organizador` (hay datos de prueba con los ids 1 y 2). Las historias de usuario no lo exigen; es una decisión de implementación del servicio.
-- La cancelación masiva de un evento (`POST /internal/eventos/{eventoId}/cancelacion` en `ms-ventas`) reintegra las entradas emitidas. Todavía no trata las entradas con una devolución solicitada ni una compra con el pago en curso al momento de cancelar.
+- `ms-eventos` valida que el organizador exista en su tabla `organizador` (hay datos de prueba con los ids 1 y 2).
+- La cancelación masiva de un evento no trata las entradas con devolución solicitada ni compras con pago en curso al momento de cancelar.
 
 ## Metodología: desarrollo guiado por especificaciones
 
@@ -195,25 +256,9 @@ Los requisitos se escriben en notación EARS y cada uno tiene escenarios `WHEN` 
 ```
 openspec/
   config.yaml          contexto del proyecto y reglas de redacción
-  specs/               especificaciones vigentes (se completan al archivar cada cambio)
+  specs/               especificaciones vigentes
   changes/             un cambio por bloque de trabajo
-    add-catalogo-eventos/
-    add-busqueda-eventos/
-    add-reservas-anti-doble-venta/
-    add-compra-con-pago/
-    add-devoluciones/
-    add-api-gateway/
 ```
-
-Cada cambio contiene:
-
-- `proposal.md`: motivo, alcance y lo que queda fuera.
-- `specs/`: requisitos y escenarios.
-- `design.md`: decisiones técnicas.
-- `tasks.md`: tareas de implementación y de pruebas.
-
-Flujo de trabajo: leer el cambio, implementar siguiendo `tasks.md`, escribir una prueba por escenario, marcar las tareas terminadas y validar.
-Las convenciones de código y los principios del proyecto están en [`AGENTS.md`](AGENTS.md).
 
 Para validar el formato de las especificaciones (opcional, requiere Node.js):
 
@@ -225,7 +270,8 @@ openspec validate --all --strict
 ## Estructura del repositorio
 
 ```
-api-gateway/       API Gateway (Spring Cloud Gateway)
+api-gateway/       API Gateway (Spring Cloud Gateway, validación JWT)
+ms-auth/           Microservicio de autenticación (registro, login, JWT)
 ms-eventos/        Microservicio de eventos
 ms-reservas/       Microservicio de reservas
 ms-ventas/         Microservicio de ventas

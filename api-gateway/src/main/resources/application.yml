@@ -11,6 +11,14 @@ spring:
           # El gateway quita el prefijo /api (StripPrefix=1) y reenvía los headers.
           # /internal/** no tiene ruta.
           routes:
+            - id: auth
+              uri: ${MS_AUTH_URL:http://localhost:8084}
+              order: 0
+              predicates:
+                - Path=/api/auth/**
+              filters:
+                - StripPrefix=1
+
             - id: reservas-disponibilidad
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
               order: 0
@@ -42,6 +50,10 @@ spring:
                 - Path=/api/compras,/api/compras/**,/api/entradas,/api/entradas/**,/api/devoluciones,/api/devoluciones/**
               filters:
                 - StripPrefix=1
+
+jwt:
+  # Valor de desarrollo; en un despliegue real se define JWT_SECRET (debe coincidir con el de ms-auth).
+  secret: ${JWT_SECRET:U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
 
 management:
   endpoint:

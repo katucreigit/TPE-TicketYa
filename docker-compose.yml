@@ -1,6 +1,6 @@
-# Sistema completo: 3 bases PostgreSQL, 3 microservicios y el API Gateway.
+# Sistema completo: 4 bases PostgreSQL, 4 microservicios y el API Gateway.
 #   Todo:            docker compose up -d --build
-#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas  (servicios desde el IDE)
+#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth  (servicios desde el IDE)
 # Dentro de la red de compose los servicios se llaman por nombre de servicio; fuera de compose
 # cada application.yml usa localhost por defecto.
 services:
@@ -55,6 +55,23 @@ services:
       timeout: 5s
       retries: 10
 
+  db-auth:
+    image: postgres:16-alpine
+    container_name: ticketya-db-auth
+    environment:
+      POSTGRES_DB: db_auth
+      POSTGRES_USER: ticketya
+      POSTGRES_PASSWORD: ticketya
+    ports:
+      - "5436:5432"
+    volumes:
+      - db-auth-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketya -d db_auth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   ms-eventos:
     build: ./ms-eventos
     image: ticketya/ms-eventos
@@ -102,12 +119,31 @@ services:
       db-ventas:
         condition: service_healthy
 
-  # El gateway arranca al final, después de los tres microservicios.
+  ms-auth:
+    build: ./ms-auth
+    image: ticketya/ms-auth
+    container_name: ticketya-ms-auth
+    environment:
+      DB_URL: jdbc:postgresql://db-auth:5432/db_auth
+      DB_USER: ticketya
+      DB_PASSWORD: ticketya
+      # Secreto compartido con el gateway. El valor por defecto es el de desarrollo de los
+      # application.yml; para otro entorno se define JWT_SECRET en el shell o en un .env (no versionado).
+      JWT_SECRET: ${JWT_SECRET:-U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
+    ports:
+      - "8084:8084"
+    depends_on:
+      db-auth:
+        condition: service_healthy
+
+  # El gateway arranca al final, después de los cuatro microservicios.
   api-gateway:
     build: ./api-gateway
     image: ticketya/api-gateway
     container_name: ticketya-api-gateway
     environment:
+      JWT_SECRET: ${JWT_SECRET:-U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
+      MS_AUTH_URL: http://ms-auth:8084
       MS_EVENTOS_URL: http://ms-eventos:8081
       MS_RESERVAS_URL: http://ms-reservas:8082
       MS_VENTAS_URL: http://ms-ventas:8083
@@ -120,8 +156,11 @@ services:
         condition: service_started
       ms-ventas:
         condition: service_started
+      ms-auth:
+        condition: service_started
 
 volumes:
   db-eventos-data:
   db-reservas-data:
   db-ventas-data:
+  db-auth-data:

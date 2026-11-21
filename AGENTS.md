@@ -9,8 +9,8 @@ Plataforma de venta de entradas para eventos (TPE Arquitectura Web, TUDAI). Alca
 
 ## Stack y comandos
 - Java 21, Spring Boot 3.5.x, Maven, PostgreSQL 16.
-- Sistema completo: `docker compose up -d --build` (gateway 8080, servicios 8081 a 8083, bases 5433 a 5435).
-- Solo bases de datos (servicios desde el IDE): `docker compose up -d db-eventos db-reservas db-ventas`.
+- Sistema completo: `docker compose up -d --build` (gateway 8080, servicios 8081 a 8084, bases 5433 a 5436).
+- Solo bases de datos (servicios desde el IDE): `docker compose up -d db-eventos db-reservas db-ventas db-auth`.
 - Por servicio: `mvn -q compile` y `mvn test`.
 - Paquete base: `com.ticketya.<servicio>`.
 

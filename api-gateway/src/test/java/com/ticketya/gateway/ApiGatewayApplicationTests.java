@@ -22,17 +22,19 @@ class ApiGatewayApplicationTests {
         assertThat(routeLocator).isNotNull();
     }
 
+    // Son 5 rutas desde la Entrega 2: se sumó "auth" (/api/auth/** hacia ms-auth) al incorporar JWT.
     @Test
-    void debeTenerConfiguradasLasCuatroRutas() {
+    void debeTenerConfiguradasLasRutasDeTodosLosServicios() {
         List<Route> rutas = Flux.from(routeLocator.getRoutes())
                 .collectList()
                 .block();
 
-        assertThat(rutas).hasSize(4);
+        assertThat(rutas).hasSize(5);
 
         assertThat(rutas)
                 .extracting(Route::getId)
                 .containsExactlyInAnyOrder(
+                        "auth",
                         "reservas-disponibilidad",
                         "reservas",
                         "eventos",

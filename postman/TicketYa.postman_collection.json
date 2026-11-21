@@ -2,14 +2,26 @@
   "info": {
     "name": "TicketYa",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Entrega 2. Gateway en {{baseUrl}}. Correr primero los pasos 0a y 0b para hacer login y guardar los tokens. Luego ejecutar el flujo completo en orden con el Runner."
+    "description": "Entrega 2. Gateway en {{baseUrl}}. Ejecutar en orden con el Runner: primero \"0. Preparación (auth)\" (registra y loguea un usuario por rol y guarda los tokens), después \"Flujo completo (en orden)\" y por último \"Casos de error\". Los ids y tokens se completan solos."
   },
   "item": [
     {
-      "name": "Flujo completo (en orden)",
+      "name": "0. Preparación (auth)",
+      "description": "Correr antes que el resto. Registra un usuario por rol (acepta 409 si ya existe) y hace login de cada uno, guardando el token y el id en variables de colección.",
       "item": [
         {
-          "name": "0c. Login ADMIN (guarda token)",
+          "name": "Registrar ORGANIZADOR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro ORGANIZADOR: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -18,24 +30,40 @@
                 "value": "application/json"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"ORGANIZADOR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
-              "raw": "{{baseUrl}}/auth/login",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "login"
+                "register"
               ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
           }
         },
         {
-          "name": "0b. Login CLIENTE (guarda token)",
+          "name": "Registrar CLIENTE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro CLIENTE: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -44,24 +72,40 @@
                 "value": "application/json"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"CLIENTE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
-              "raw": "{{baseUrl}}/auth/login",
+              "raw": "{{baseUrl}}/auth/register",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "auth",
-                "login"
+                "register"
               ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
           }
         },
         {
-          "name": "0a. Login ORGANIZADOR (guarda token)",
+          "name": "Registrar CLIENTE 2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro CLIENTE 2: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "POST",
             "header": [
@@ -70,6 +114,148 @@
                 "value": "application/json"
               }
             ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente2@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"CLIENTE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar ADMIN",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro ADMIN: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Registrar ACCESO",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Registro ACCESO: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"acceso@ticketya.com\",\n  \"password\": \"pass123\",\n  \"rol\": \"PERSONAL_ACCESO\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login ORGANIZADOR (guarda tokenOrganizador)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login ORGANIZADOR: 200 con token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
+                  "  pm.expect(pm.response.json().userId, 'el organizador debe tener id 1 o 2 (organizadores de prueba de ms-eventos); levantar db-auth vacía con docker compose down -v')",
+                  "    .to.be.oneOf([1, 2]);",
+                  "});",
+                  "pm.collectionVariables.set('tokenOrganizador', pm.response.json().token);",
+                  "pm.collectionVariables.set('organizadorId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
               "raw": "{{baseUrl}}/auth/login",
               "host": [
@@ -79,13 +265,202 @@
                 "auth",
                 "login"
               ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"organizador@ticketya.com\",\n  \"password\": \"pass123\"\n}"
             }
           }
         },
+        {
+          "name": "Login CLIENTE (guarda tokenCliente)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login CLIENTE: 200 con token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('tokenCliente', pm.response.json().token);",
+                  "pm.collectionVariables.set('clienteId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente@ticketya.com\",\n  \"password\": \"pass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login CLIENTE 2 (guarda tokenCliente2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login CLIENTE 2: 200 con token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('tokenCliente2', pm.response.json().token);",
+                  "pm.collectionVariables.set('clienteId2', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"cliente2@ticketya.com\",\n  \"password\": \"pass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login ADMIN (guarda tokenAdmin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login ADMIN: 200 con token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('tokenAdmin', pm.response.json().token);",
+                  "pm.collectionVariables.set('adminId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ticketya.com\",\n  \"password\": \"pass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Login ACCESO (guarda tokenAcceso)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Login ACCESO: 200 con token', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.collectionVariables.set('tokenAcceso', pm.response.json().token);",
+                  "pm.collectionVariables.set('accesoId', pm.response.json().userId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"acceso@ticketya.com\",\n  \"password\": \"pass123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Flujo completo (en orden)",
+      "item": [
         {
           "name": "1. Crear lugar (ORGANIZADOR)",
           "request": {
@@ -128,6 +503,21 @@
                   "pm.collectionVariables.set('fechaEvento', new Date(Date.now() + 30*86400000).toISOString().slice(0,19));"
                 ]
               }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const l = pm.response.json();",
+                  "pm.collectionVariables.set('lugarId', l.id);",
+                  "const num = l.sectores.find(s => s.tipo === 'NUMERADO');",
+                  "const gen = l.sectores.find(s => s.tipo === 'NO_NUMERADO');",
+                  "if (num) pm.collectionVariables.set('sectorNumId', num.id);",
+                  "if (gen) pm.collectionVariables.set('sectorGralId', gen.id);"
+                ]
+              }
             }
           ]
         },
@@ -163,7 +553,20 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Queda en BORRADOR', () => pm.expect(pm.response.json().estado).to.eql('BORRADOR'));",
+                  "pm.collectionVariables.set('eventoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "3. Configurar precios (ORGANIZADOR)",
@@ -199,7 +602,18 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "4. Publicar evento (ORGANIZADOR)",
@@ -222,7 +636,19 @@
                 "publicar"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Queda PUBLICADO', () => pm.expect(pm.response.json().estado).to.eql('PUBLICADO'));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "5. Ver disponibilidad (CLIENTE)",
@@ -240,7 +666,18 @@
                 "disponibilidad"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "6. Reservar dos asientos (CLIENTE)",
@@ -274,7 +711,19 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('reservaId', pm.response.json().reservaId);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "7. Pagar la reserva (CLIENTE)",
@@ -322,6 +771,19 @@
                   "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
                 ]
               }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const c = pm.response.json();",
+                  "pm.test('Compra APROBADA con entradas', () => { pm.expect(c.estado).to.eql('APROBADA'); pm.expect(c.entradas.length).to.eql(2); });",
+                  "pm.collectionVariables.set('compraId', c.compraId);",
+                  "pm.collectionVariables.set('entradaId', c.entradas[0].entradaId);"
+                ]
+              }
             }
           ]
         },
@@ -344,7 +806,18 @@
                 "entradas"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "9. Solicitar devolucion (CLIENTE)",
@@ -378,7 +851,20 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Queda SOLICITADA', () => pm.expect(pm.response.json().estado).to.eql('SOLICITADA'));",
+                  "pm.collectionVariables.set('devolucionId', pm.response.json().devolucionId);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "10. Aprobar devolucion (ADMIN)",
@@ -401,7 +887,19 @@
                 "aprobar"
               ]
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Queda REINTEGRADA', () => pm.expect(pm.response.json().estado).to.eql('REINTEGRADA'));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -415,7 +913,7 @@
             "header": [
               {
                 "key": "Authorization",
-                "value": "Bearer {{tokenCliente}}"
+                "value": "Bearer {{tokenCliente2}}"
               },
               {
                 "key": "Content-Type",
@@ -441,7 +939,18 @@
               }
             },
             "description": "Ejecutar despues del paso 6 del flujo, antes de que venza la reserva (10 minutos)."
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict: el asiento ya esta reservado', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E2. Crear reserva para pago rechazado",
@@ -475,7 +984,19 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('reservaRechazoId', pm.response.json().reservaId);"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "E3. Pagar con tok_rechazado (402)",
@@ -523,6 +1044,15 @@
                   "pm.collectionVariables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
                 ]
               }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('402 Payment Required', () => pm.response.to.have.status(402));"
+                ]
+              }
             }
           ]
         },
@@ -558,10 +1088,64 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
         },
         {
-          "name": "E5. Sin headers de identidad (400)",
+          "name": "E5. Token invalido (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer token-invalido"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/compras",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "compras"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized con token invalido', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "E6. Endpoint protegido sin token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized sin token', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
           "request": {
             "method": "GET",
             "header": [],
@@ -572,6 +1156,51 @@
               ],
               "path": [
                 "compras"
+              ]
+            }
+          }
+        },
+        {
+          "name": "E7. CLIENTE intenta crear un lugar (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden: crear un lugar es de ORGANIZADOR', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenCliente}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Lugar no permitido\",\n  \"direccion\": \"Calle 1\",\n  \"ciudad\": \"Tandil\",\n  \"latitud\": -37.32,\n  \"longitud\": -59.13,\n  \"sectores\": [\n    {\n      \"nombre\": \"Campo\",\n      \"tipo\": \"NO_NUMERADO\",\n      \"capacidad\": 100\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/lugares",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "lugares"
               ]
             }
           }
@@ -1979,6 +2608,18 @@
     },
     {
       "key": "tokenAdmin",
+      "value": ""
+    },
+    {
+      "key": "tokenCliente2",
+      "value": ""
+    },
+    {
+      "key": "tokenAcceso",
+      "value": ""
+    },
+    {
+      "key": "accesoId",
       "value": ""
     }
   ]

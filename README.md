@@ -60,7 +60,7 @@ docker compose up -d --build
 Levanta 9 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
 
 - Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
-- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan unos segundos en iniciar: conviene esperar a que `docker compose logs -f` muestre `Started` en los cinco antes de usar la API.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los cinco antes de usar la API.
 - Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
 - `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
 
@@ -222,17 +222,27 @@ La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el
 
 - `ms-eventos` carga al iniciar un conjunto inicial: organizadores (ids 1 y 2), lugares con sus sectores y algunos eventos.
 - Para pagar se usan los tokens de la pasarela simulada: `tok_ok`, `tok_rechazado` y `tok_timeout`.
-- Para probar sin registrarse, usar los datos de ejemplo de la colección Postman (ya incluyen el flujo de login).
+- Para probar sin registrarse a mano, la carpeta de preparación de la colección Postman crea un usuario por rol (contraseña `pass123`) y hace login de cada uno.
 
 ## Colección de requests (Postman)
 
-En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collection.json) hay una colección agrupada por recurso:
+En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collection.json) hay una colección agrupada por recurso. La autenticación es siempre con JWT: cada request protegido manda `Authorization: Bearer {{token...}}` con el token del rol que corresponde, y las rutas públicas (como `GET /eventos`) van sin token.
 
-- La carpeta **Auth** contiene los requests de registro y login. El token se guarda automáticamente en una variable de entorno y se usa en el resto de los requests.
-- La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: registrarse, crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución.
-- Hay carpetas para casos de error y para los endpoints internos entre servicios.
+Las carpetas se ejecutan en este orden con el Runner:
 
-Para usarla: importarla en Postman, levantar los 5 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar la carpeta con el Runner. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
+1. **0. Preparación (auth)**: registra un ORGANIZADOR, un CLIENTE, un segundo CLIENTE, un ADMIN y un usuario de acceso (si ya existen, el `409` se acepta) y hace login de cada uno, guardando `tokenOrganizador`, `tokenCliente`, `tokenCliente2`, `tokenAdmin` y `tokenAcceso` en variables de la colección. 10 pruebas. El ORGANIZADOR se registra primero a propósito: `ms-eventos` exige que el id del token exista en su tabla de organizadores, que tiene los ids 1 y 2 de los datos de prueba, y con `db-auth` vacía el primer usuario recibe el id 1. Si `db-auth` ya tenía otros usuarios, el login del organizador lo avisa; en ese caso, `docker compose down -v` y volver a levantar.
+2. **Flujo completo (en orden)**: crear lugar y evento, configurar precios, publicar, ver disponibilidad, reservar, pagar, ver entradas, solicitar y aprobar una devolución. 15 pruebas.
+3. **Casos de error**: asiento ya reservado por otro cliente (`409`), pago rechazado (`402`), pago sin `Idempotency-Key` (`400`), token inválido y sin token (`401`) y un CLIENTE intentando una operación de ORGANIZADOR (`403`). 7 pruebas.
+
+El resto de las carpetas son requests sueltos por recurso, y la de internos va directo a cada servicio sin pasar por el gateway. La colección [`postman/TicketYa-Auth.postman_collection.json`](postman/TicketYa-Auth.postman_collection.json) tiene requests sueltos de registro y login.
+
+Para usarla: levantar los 5 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar las tres carpetas en orden. `ms-auth` tarda alrededor de 90 segundos en arrancar (más en una máquina cargada); hasta que `docker compose logs ms-auth` muestre `Started MsAuthApplication`, la preparación falla. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
+
+Desde la línea de comandos, con [newman](https://www.npmjs.com/package/newman):
+
+```
+npx newman run postman/TicketYa.postman_collection.json --folder "0. Preparación (auth)" --folder "Flujo completo (en orden)" --folder "Casos de error"
+```
 
 ## Uso de inteligencia artificial
 

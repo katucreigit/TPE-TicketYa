@@ -47,10 +47,35 @@ El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
 ## Cómo ejecutar
 
-1. Levantar las bases de datos (una por servicio):
+Hay dos formas: todo el sistema en contenedores, o solo las bases en contenedores y los servicios desde el IDE.
+
+### Todo el sistema con Docker Compose
+
+Desde la raíz del repositorio:
+
+```
+docker compose up -d --build
+```
+
+Levanta 9 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+
+- Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan unos segundos en iniciar: conviene esperar a que `docker compose logs -f` muestre `Started` en los cinco antes de usar la API.
+- Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
+- `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
+
+Cada imagen también se puede construir por separado, por ejemplo:
+
+```
+docker build -t ticketya/ms-eventos ms-eventos
+```
+
+### Servicios desde el IDE
+
+1. Levantar solo las bases de datos (una por servicio):
 
    ```
-   docker compose up -d
+   docker compose up -d db-eventos db-reservas db-ventas db-auth
    ```
 
    Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436 (usuario y contraseña `ticketya`).
@@ -73,12 +98,13 @@ Las tablas se crean automáticamente al iniciar cada servicio.
 
 ### Configuración
 
-Los valores por defecto sirven para ejecución local. Se pueden cambiar con variables de entorno:
+Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cambiar con variables de entorno; `docker-compose.yml` las define para que apunten a los nombres de servicio:
 
 | Variable | Servicio | Valor por defecto |
 |---|---|---|
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | todos los ms | `localhost` en el puerto de su base, usuario `ticketya` |
 | `MS_AUTH_URL` | `api-gateway` | `http://localhost:8084` |
+| `JWT_SECRET` | `api-gateway`, `ms-auth` | Clave de desarrollo (Base64) de sus `application.yml`; tiene que ser la misma en los dos. Para otro entorno, definirla en el shell o en un `.env` sin versionar |
 | `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas` | `http://localhost:8081` |
 | `MS_RESERVAS_URL` | `api-gateway`, `ms-eventos`, `ms-ventas` | `http://localhost:8082` |
 | `MS_VENTAS_URL` | `api-gateway`, `ms-eventos` | `http://localhost:8083` |
@@ -206,7 +232,7 @@ En [`postman/TicketYa.postman_collection.json`](postman/TicketYa.postman_collect
 - La carpeta **Flujo completo (en orden)** recorre el caso de uso completo: registrarse, crear lugar y evento, publicar, reservar, pagar, ver entradas, solicitar y aprobar una devolución.
 - Hay carpetas para casos de error y para los endpoints internos entre servicios.
 
-Para usarla: importarla en Postman, levantar los 5 servicios y ejecutar la carpeta con el Runner.
+Para usarla: importarla en Postman, levantar los 5 servicios (desde el IDE o con `docker compose up -d --build`) y ejecutar la carpeta con el Runner. Funciona igual contra los contenedores, porque el gateway se publica en el mismo puerto 8080. Para repetir el flujo desde cero con compose: `docker compose down -v` y volver a levantar.
 
 ## Uso de inteligencia artificial
 
@@ -252,6 +278,6 @@ ms-ventas/         Microservicio de ventas
 docs/              Historias de usuario, arquitectura, modelo de datos y OpenAPI
 openspec/          Especificaciones y cambios
 postman/           Colección de requests
-docker-compose.yml Bases de datos PostgreSQL
+docker-compose.yml Sistema completo: bases PostgreSQL, microservicios y gateway
 AGENTS.md          Convenciones del proyecto
 ```

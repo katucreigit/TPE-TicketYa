@@ -5,14 +5,15 @@ spring:
   application:
     name: ms-auth
   datasource:
-    url: jdbc:postgresql://localhost:5436/db_auth
-    username: ticketya
-    password: ticketya
+    url: ${DB_URL:jdbc:postgresql://localhost:5436/db_auth}
+    username: ${DB_USER:ticketya}
+    password: ${DB_PASSWORD:ticketya}
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: false
 
 jwt:
-  secret: U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==
+  # Valor de desarrollo; en un despliegue real se define JWT_SECRET (debe coincidir con el del gateway).
+  secret: ${JWT_SECRET:U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
   expiration-ms: 86400000

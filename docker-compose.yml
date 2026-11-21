@@ -1,5 +1,8 @@
-# Entrega 1: solo las bases de datos (los microservicios se ejecutan localmente).
-# Una base PostgreSQL por microservicio, cada una en su propio contenedor.
+# Sistema completo: 4 bases PostgreSQL, 4 microservicios y el API Gateway.
+#   Todo:            docker compose up -d --build
+#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth  (servicios desde el IDE)
+# Dentro de la red de compose los servicios se llaman por nombre de servicio; fuera de compose
+# cada application.yml usa localhost por defecto.
 services:
   db-eventos:
     image: postgres:16-alpine
@@ -68,6 +71,93 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  ms-eventos:
+    build: ./ms-eventos
+    image: ticketya/ms-eventos
+    container_name: ticketya-ms-eventos
+    environment:
+      DB_URL: jdbc:postgresql://db-eventos:5432/db_eventos
+      DB_USER: ticketya
+      DB_PASSWORD: ticketya
+      MS_RESERVAS_URL: http://ms-reservas:8082
+      MS_VENTAS_URL: http://ms-ventas:8083
+    ports:
+      - "8081:8081"
+    depends_on:
+      db-eventos:
+        condition: service_healthy
+
+  ms-reservas:
+    build: ./ms-reservas
+    image: ticketya/ms-reservas
+    container_name: ticketya-ms-reservas
+    environment:
+      DB_URL: jdbc:postgresql://db-reservas:5432/db_reservas
+      DB_USER: ticketya
+      DB_PASSWORD: ticketya
+      MS_EVENTOS_URL: http://ms-eventos:8081
+    ports:
+      - "8082:8082"
+    depends_on:
+      db-reservas:
+        condition: service_healthy
+
+  ms-ventas:
+    build: ./ms-ventas
+    image: ticketya/ms-ventas
+    container_name: ticketya-ms-ventas
+    environment:
+      DB_URL: jdbc:postgresql://db-ventas:5432/db_ventas
+      DB_USER: ticketya
+      DB_PASSWORD: ticketya
+      MS_EVENTOS_URL: http://ms-eventos:8081
+      MS_RESERVAS_URL: http://ms-reservas:8082
+    ports:
+      - "8083:8083"
+    depends_on:
+      db-ventas:
+        condition: service_healthy
+
+  ms-auth:
+    build: ./ms-auth
+    image: ticketya/ms-auth
+    container_name: ticketya-ms-auth
+    environment:
+      DB_URL: jdbc:postgresql://db-auth:5432/db_auth
+      DB_USER: ticketya
+      DB_PASSWORD: ticketya
+      # Secreto compartido con el gateway. El valor por defecto es el de desarrollo de los
+      # application.yml; para otro entorno se define JWT_SECRET en el shell o en un .env (no versionado).
+      JWT_SECRET: ${JWT_SECRET:-U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
+    ports:
+      - "8084:8084"
+    depends_on:
+      db-auth:
+        condition: service_healthy
+
+  # El gateway arranca al final, después de los cuatro microservicios.
+  api-gateway:
+    build: ./api-gateway
+    image: ticketya/api-gateway
+    container_name: ticketya-api-gateway
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
+      MS_AUTH_URL: http://ms-auth:8084
+      MS_EVENTOS_URL: http://ms-eventos:8081
+      MS_RESERVAS_URL: http://ms-reservas:8082
+      MS_VENTAS_URL: http://ms-ventas:8083
+    ports:
+      - "8080:8080"
+    depends_on:
+      ms-eventos:
+        condition: service_started
+      ms-reservas:
+        condition: service_started
+      ms-ventas:
+        condition: service_started
+      ms-auth:
+        condition: service_started
 
 volumes:
   db-eventos-data:

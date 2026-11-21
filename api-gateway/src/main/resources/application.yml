@@ -52,7 +52,8 @@ spring:
                 - StripPrefix=1
 
 jwt:
-  secret: U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==
+  # Valor de desarrollo; en un despliegue real se define JWT_SECRET (debe coincidir con el de ms-auth).
+  secret: ${JWT_SECRET:U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
 
 management:
   endpoint:

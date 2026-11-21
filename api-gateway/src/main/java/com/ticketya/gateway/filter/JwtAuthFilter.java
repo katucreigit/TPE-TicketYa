@@ -1,3 +1,4 @@
+
 package com.ticketya.gateway.filter;
 
 import io.jsonwebtoken.Claims;
@@ -16,9 +17,17 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 import javax.crypto.SecretKey;
+import java.util.Set;
 
 @Component
 public class JwtAuthFilter implements GlobalFilter, Ordered {
+
+    private static final Set<String> ROLES_VALIDOS = Set.of(
+            "CLIENTE",
+            "ORGANIZADOR",
+            "ADMIN",
+            "PERSONAL_ACCESO"
+    );
 
     @Value("${jwt.secret}")
     private String secret;
@@ -36,18 +45,24 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
 
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+            return responderNoAutorizado(exchange);
         }
 
         String token = authHeader.substring(7);
 
         try {
             Claims claims = parsearToken(token);
+
             String userId = claims.getSubject();
             String rol = claims.get("rol", String.class);
 
-            // Reemplaza (no suma) los headers X-User-Id y X-User-Rol para los microservicios downstream
+            // Verifica que el token contenga una identidad y un rol validos.
+            if (userId == null || userId.isBlank()
+                    || rol == null || !ROLES_VALIDOS.contains(rol)) {
+                return responderNoAutorizado(exchange);
+            }
+
+            // Reemplaza los headers del cliente por los datos confiables del token.
             ServerWebExchange mutated = exchange.mutate()
                     .request(r -> r.headers(headers -> {
                         headers.remove("X-User-Id");
@@ -59,23 +74,30 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
 
             return chain.filter(mutated);
 
-        } catch (JwtException e) {
-            exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
-            return exchange.getResponse().setComplete();
+        } catch (JwtException | IllegalArgumentException e) {
+            return responderNoAutorizado(exchange);
         }
+    }
+
+    private Mono<Void> responderNoAutorizado(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
+        return exchange.getResponse().setComplete();
     }
 
     private boolean esPublica(String path, HttpMethod method) {
         // Login y register siempre publicos
         if (path.startsWith("/api/auth/")) return true;
+
         // Buscar y ver eventos/lugares no requiere login
         if (method == HttpMethod.GET &&
                 (path.startsWith("/api/eventos") || path.startsWith("/api/lugares"))) return true;
+
         return false;
     }
 
     private Claims parsearToken(String token) {
         SecretKey key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+
         return Jwts.parser()
                 .verifyWith(key)
                 .build()
@@ -85,6 +107,6 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        return -1; // corre antes que los filtros de ruteo
-    }
+        return 0;
+}
 }

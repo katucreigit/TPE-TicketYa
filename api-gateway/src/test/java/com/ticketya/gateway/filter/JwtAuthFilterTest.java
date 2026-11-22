@@ -126,6 +126,84 @@ class JwtAuthFilterTest {
                 .getFirst("X-User-Rol")).isEqualTo("ADMIN");
     }
 
+
+    @Test
+    void rutaPublicaSinTokenPermiteContinuarYEliminaHeadersFalsificados() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Rol", "ADMIN")
+                        .build()
+        );
+
+        AtomicReference<ServerWebExchange> exchangeRecibido = new AtomicReference<>();
+
+        jwtAuthFilter.filter(exchange, exchangeMutado -> {
+            exchangeRecibido.set(exchangeMutado);
+            return Mono.empty();
+        }).block();
+
+        assertThat(exchangeRecibido.get()).isNotNull();
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Id")).isNull();
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Rol")).isNull();
+    }
+
+    @Test
+    void rutaPublicaConTokenValidoPropagaLaIdentidad() {
+        String token = generarToken("123", "ORGANIZADOR", 60000);
+
+        MockServerWebExchange exchange = crearSolicitudPublicaConToken(token);
+        AtomicReference<ServerWebExchange> exchangeRecibido = new AtomicReference<>();
+
+        jwtAuthFilter.filter(exchange, exchangeMutado -> {
+            exchangeRecibido.set(exchangeMutado);
+            return Mono.empty();
+        }).block();
+
+        assertThat(exchangeRecibido.get()).isNotNull();
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Id")).isEqualTo("123");
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Rol")).isEqualTo("ORGANIZADOR");
+    }
+
+    @Test
+    void rutaPublicaConTokenInvalidoDevuelve401() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos")
+                        .header("Authorization", "Bearer token-invalido")
+                        .build()
+        );
+
+        ejecutar(exchange);
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void rutaConPrefijoParecidoPeroNoPublicoDevuelve401() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos-falsos")
+                        .build()
+        );
+
+        ejecutar(exchange);
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    private MockServerWebExchange crearSolicitudPublicaConToken(String token) {
+        return MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos/123")
+                        .header("Authorization", "Bearer " + token)
+                        .build()
+        );
+    }
+
     private MockServerWebExchange crearSolicitud() {
         return MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/reservas").build()

@@ -23,7 +23,7 @@ Resumen de recursos. El detalle completo (parámetros, códigos de respuesta y e
 
 ### Rutas del API Gateway
 
-El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondiente. Los headers `X-User-Id`, `X-User-Rol` e `Idempotency-Key` se reenvían tal cual.
+El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondiente. En las solicitudes autenticadas valida el JWT y obtiene de sus claims el identificador del usuario y su rol. Reemplaza los headers `X-User-Id` y `X-User-Rol` enviados por el cliente por los valores verificados del token. Las rutas públicas permiten el acceso sin token; si reciben uno válido, también propagan la identidad autenticada. El header `Idempotency-Key` se reenvía al servicio correspondiente.
 
 | Ruta externa | Destino |
 |---|---|
@@ -112,7 +112,7 @@ El detalle gráfico está en `secuencia-compra.md`.
 ## 6. Decisiones de diseño
 
 1. **Estado `SUSPENDIDO`.** El enunciado lista cinco estados pero pide que el administrador pueda "suspender"; se agrega `SUSPENDIDO` como estado reversible. Equivale a devolver el evento a `BORRADOR` si se prefiere no sumar un estado.
-2. **Identidad sin JWT (E1).** El usuario viaja en `X-User-Id` y su rol en `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `ACCESO`). Cada servicio valida el rol con un filtro simple; en E2 se reemplaza por JWT.
+2. **Autenticación y autorización mediante JWT (E2).** El API Gateway valida la firma y vigencia del JWT en las rutas protegidas. Obtiene el identificador del usuario del subject y el rol del claim `rol`, y propaga esos datos mediante `X-User-Id` y `X-User-Rol`, reemplazando cualquier valor enviado por el cliente. Las rutas públicas permiten solicitudes sin token y aceptan tokens válidos para identificar al usuario cuando corresponde. Cada microservicio aplica las restricciones de acceso según los roles `CLIENTE`, `ORGANIZADOR`, `ADMIN` y `PERSONAL_ACCESO`.
 3. **Límite por cliente en ms-reservas.** Se controla ahí porque conoce reservas activas y lugares vendidos por cliente y evento. El valor (`maxPorCliente`, por defecto 4) se define en el evento y se copia al inventario al publicar.
 4. **Asientos pre-generados al publicar.** Simplifica la reserva atómica (`UPDATE` condicional) a costa de insertar una fila por asiento al publicar; para un estadio de 50.000 lugares se hace en lotes.
 5. **Pasarela mock.** Decide por el token de pago: `tok_ok` aprueba, `tok_rechazado` rechaza, `tok_timeout` simula que la pasarela cobró pero no respondió a tiempo. La pasarela mock recibe una clave de cobro y, si la repite, devuelve el resultado original sin cobrar de nuevo. Los reintegros también son simulados.

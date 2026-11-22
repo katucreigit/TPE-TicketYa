@@ -1,4 +1,3 @@
-
 package com.ticketya.gateway.filter;
 
 import io.jsonwebtoken.Claims;
@@ -37,14 +36,23 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String path = exchange.getRequest().getPath().value();
         HttpMethod method = exchange.getRequest().getMethod();
 
-        // Rutas publicas: auth + lectura de eventos y lugares sin login
-        if (esPublica(path, method)) {
+        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+
+        // Las rutas de autenticacion son publicas y no necesitan identidad previa.
+        if (esRutaAuth(path)) {
             return chain.filter(exchange);
         }
 
-        String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
+        boolean rutaPublica = esPublica(path, method);
 
+        // En rutas publicas se permite continuar sin token, pero se eliminan
+        // los headers de identidad que pudiera haber enviado el cliente.
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            if (rutaPublica && authHeader == null) {
+                ServerWebExchange mutated = eliminarHeadersIdentidad(exchange);
+                return chain.filter(mutated);
+            }
+
             return responderNoAutorizado(exchange);
         }
 
@@ -79,20 +87,33 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         }
     }
 
+    private ServerWebExchange eliminarHeadersIdentidad(ServerWebExchange exchange) {
+        return exchange.mutate()
+                .request(r -> r.headers(headers -> {
+                    headers.remove("X-User-Id");
+                    headers.remove("X-User-Rol");
+                }))
+                .build();
+    }
+
     private Mono<Void> responderNoAutorizado(ServerWebExchange exchange) {
         exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED);
         return exchange.getResponse().setComplete();
     }
 
+    private boolean esRutaAuth(String path) {
+        return path.equals("/api/auth") || path.startsWith("/api/auth/");
+    }
+
     private boolean esPublica(String path, HttpMethod method) {
-        // Login y register siempre publicos
-        if (path.startsWith("/api/auth/")) return true;
+        if (method != HttpMethod.GET) {
+            return false;
+        }
 
-        // Buscar y ver eventos/lugares no requiere login
-        if (method == HttpMethod.GET &&
-                (path.startsWith("/api/eventos") || path.startsWith("/api/lugares"))) return true;
-
-        return false;
+        return path.equals("/api/eventos")
+                || path.startsWith("/api/eventos/")
+                || path.equals("/api/lugares")
+                || path.startsWith("/api/lugares/");
     }
 
     private Claims parsearToken(String token) {
@@ -108,5 +129,5 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
     @Override
     public int getOrder() {
         return 0;
-}
+    }
 }

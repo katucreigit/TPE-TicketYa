@@ -37,7 +37,7 @@ El sistema MUST obtener la identidad y el rol del usuario a partir de la informa
 - **THEN** el sistema utiliza la identidad y el rol autenticados del token y no los valores manipulados de los headers
 
 ### Requirement: Autorización según roles
-El sistema MUST permitir el acceso a cada endpoint únicamente a los roles autorizados para esa operación: CLIENTE, ORGANIZADOR, ADMIN y ACCESO.
+El sistema MUST permitir el acceso a cada endpoint únicamente a los roles autorizados para esa operación: CLIENTE, ORGANIZADOR, ADMIN y PERSONAL_ACCESO.
 
 #### Scenario: Rol autorizado
 - **WHEN** un usuario autenticado solicita un endpoint para el cual su rol tiene permisos

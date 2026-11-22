@@ -2,8 +2,8 @@
 
 ## 1. Identificador de correlación en el API Gateway
 
-- [ ] 1.1 Implementar la recepción o generación del `correlationId` en el API Gateway y verificar mediante pruebas que se genere cuando no se recibe uno.
-- [ ] 1.2 Propagar el mismo `correlationId` en las solicitudes dirigidas a los microservicios y verificarlo mediante pruebas.
+- [x] 1.1 Implementar la recepción o generación del `correlationId` en el API Gateway y verificar mediante pruebas que se genere cuando no se recibe uno.
+- [x] 1.2 Propagar el mismo `correlationId` en las solicitudes dirigidas a los microservicios y verificarlo mediante pruebas.
 
 ## 2. Trazabilidad en los microservicios
 

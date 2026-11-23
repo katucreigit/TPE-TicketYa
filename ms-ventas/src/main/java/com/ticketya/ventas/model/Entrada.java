@@ -58,4 +58,10 @@ public class Entrada {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private EstadoEntrada estado = EstadoEntrada.EMITIDA;
+
+    @Column(name = "usada_en")
+    private LocalDateTime usadaEn;
+
+    @Column(name = "validada_por")
+    private String validadaPor;
 }

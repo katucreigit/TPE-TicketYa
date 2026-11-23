@@ -21,6 +21,10 @@ spring:
                 - Path=/api/auth/**
               filters:
                 - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: auth
+                    fallbackUri: forward:/fallback/auth
 
             - id: reservas-disponibilidad
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
@@ -29,6 +33,10 @@ spring:
                 - Path=/api/eventos/*/disponibilidad,/api/eventos/*/sectores/*/asientos
               filters:
                 - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: reservas
+                    fallbackUri: forward:/fallback/reservas
 
             - id: reservas
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
@@ -37,6 +45,10 @@ spring:
                 - Path=/api/reservas,/api/reservas/**
               filters:
                 - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: reservas
+                    fallbackUri: forward:/fallback/reservas
 
             - id: eventos
               uri: ${MS_EVENTOS_URL:http://localhost:8081}
@@ -45,6 +57,10 @@ spring:
                 - Path=/api/lugares,/api/lugares/**,/api/eventos,/api/eventos/**
               filters:
                 - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: eventos
+                    fallbackUri: forward:/fallback/eventos
 
             - id: ventas
               uri: ${MS_VENTAS_URL:http://localhost:8083}
@@ -53,6 +69,10 @@ spring:
                 - Path=/api/compras,/api/compras/**,/api/entradas,/api/entradas/**,/api/devoluciones,/api/devoluciones/**
               filters:
                 - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: ventas
+                    fallbackUri: forward:/fallback/ventas
 
 jwt:
   # Valor de desarrollo; en un despliegue real se define JWT_SECRET (debe coincidir con el de ms-auth).
@@ -66,3 +86,39 @@ management:
     web:
       exposure:
         include: health,gateway
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      auth:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+      reservas:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+      eventos:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+      ventas:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true

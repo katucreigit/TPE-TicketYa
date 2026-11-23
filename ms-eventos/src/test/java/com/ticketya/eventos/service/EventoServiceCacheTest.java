@@ -103,16 +103,48 @@ class EventoServiceCacheTest {
     @Test
     void consultaRepetidaDelDetalleReutilizaResultadoCacheado() {
 
-    Evento evento = crearEvento(1L, EstadoEvento.PUBLICADO);
+        Evento evento = crearEvento(1L, EstadoEvento.PUBLICADO);
 
-    when(eventoRepository.findById(1L))
-            .thenReturn(java.util.Optional.of(evento));
+        when(eventoRepository.findById(1L))
+                .thenReturn(java.util.Optional.of(evento));
 
-    eventoService.obtenerEvento(1L, 10L, "CLIENTE");
-    eventoService.obtenerEvento(1L, 20L, "CLIENTE");
+        var primeraRespuesta =
+                eventoService.obtenerEvento(1L, 10L, "CLIENTE");
 
-    verify(eventoRepository, times(1)).findById(1L);
-}
+        var segundaRespuesta =
+                eventoService.obtenerEvento(1L, 20L, "CLIENTE");
+
+        assertEquals(primeraRespuesta, segundaRespuesta);
+
+        verify(eventoRepository, times(1)).findById(1L);
+    }
+
+    @Test
+    void consultaDeSectoresNoSeGuardaEnCache() {
+
+        Evento evento = crearEvento(1L, EstadoEvento.PUBLICADO);
+
+        Sector sector = new Sector();
+        sector.setId(1L);
+        sector.setNombre("Campo");
+        sector.setTipo(TipoSector.NO_NUMERADO);
+        sector.setCapacidad(100);
+
+        EventoSector eventoSector = new EventoSector();
+        eventoSector.setEvento(evento);
+        eventoSector.setSector(sector);
+        eventoSector.setPrecio(new BigDecimal("1000"));
+
+        evento.getSectores().add(eventoSector);
+
+        when(eventoRepository.findById(1L))
+                .thenReturn(java.util.Optional.of(evento));
+
+        eventoService.obtenerSectores(1L);
+        eventoService.obtenerSectores(1L);
+
+        verify(eventoRepository, times(2)).findById(1L);
+    }
 
     @Test
     void consultasDeEventosDiferentesGeneranEntradasIndependientes() {

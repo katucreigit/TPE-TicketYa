@@ -3,6 +3,10 @@ package com.ticketya.eventos.config;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.concurrent.TimeUnit;
+
+import java.util.concurrent.atomic.AtomicLong;
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.junit.jupiter.api.Test;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
@@ -57,6 +61,31 @@ class CacheConfigTest {
 
         assertNotNull(cache.get("clave-prueba"));
     }
+
+
+    @Test
+    void entradaExpiraDespuesDeCincoMinutos() {
+
+        AtomicLong tiempo = new AtomicLong(0);
+
+        Ticker reloj = tiempo::get;
+
+        CacheConfig configuracion = new CacheConfig();
+
+        CacheManager cacheManager =
+                configuracion.crearCacheManager(5, reloj);
+
+        Cache cache = cacheManager.getCache("catalogoEventos");
+
+        cache.put("clave-prueba", "valor");
+
+        assertNotNull(cache.get("clave-prueba"));
+
+        tiempo.addAndGet(TimeUnit.MINUTES.toNanos(5));
+
+        assertNull(cache.get("clave-prueba"));
+    }
+
 
     @Test
     void commitEjecutaLaInvalidacionDeCache() {

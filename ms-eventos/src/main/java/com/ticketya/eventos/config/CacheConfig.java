@@ -1,8 +1,10 @@
+
 package com.ticketya.eventos.config;
 
 import java.time.Duration;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.Ticker;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
@@ -19,11 +21,17 @@ public class CacheConfig {
     public CacheManager cacheManager(
             @Value("${ticketya.cache.ttl-minutes:5}") long ttlMinutes) {
 
+        return crearCacheManager(ttlMinutes, Ticker.systemTicker());
+    }
+
+    CacheManager crearCacheManager(long ttlMinutes, Ticker ticker) {
+
         CaffeineCacheManager caffeineCacheManager =
                 new CaffeineCacheManager("catalogoEventos", "detalleEvento");
 
         caffeineCacheManager.setCaffeine(
                 Caffeine.newBuilder()
+                        .ticker(ticker)
                         .expireAfterWrite(Duration.ofMinutes(ttlMinutes))
                         .maximumSize(1000)
         );

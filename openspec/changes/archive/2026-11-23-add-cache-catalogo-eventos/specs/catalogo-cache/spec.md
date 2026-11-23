@@ -1,3 +1,4 @@
+
 # Spec Delta
 
 ## Purpose
@@ -72,18 +73,15 @@ El sistema SHALL establecer un tiempo de vida (TTL) para las entradas de caché 
 - **WHEN** se consulta un dato cuya entrada de caché alcanzó su TTL
 - **THEN** el sistema obtiene información actualizada y reemplaza la entrada vencida
 
-### Requirement: Invalidación al modificar eventos
+### Requirement: Invalidación por cambios públicos del evento
 
-El sistema SHALL invalidar las entradas de caché relacionadas con un evento cuando una operación modifica su información pública o su estado.
+Las operaciones que modifican la información pública o el estado de un evento SHALL invalidar las entradas de caché de su catálogo y detalle.
 
-- Las operaciones de publicación, suspensión, reanudación y cancelación SHALL invalidar el catálogo y el detalle del evento correspondiente.
-- Un cambio efectivo de disponibilidad que modifique el estado del evento SHALL invalidar el catálogo y el detalle correspondiente.
-- Las invalidaciones SHALL ejecutarse después de confirmar la transacción.
-- Las modificaciones de eventos en estado BORRADOR que no afectan información pública no requieren invalidación.
+- Las operaciones de publicación, suspensión, reanudación y cancelación SHALL invalidar ambas entradas.
 
-#### Scenario: Evento modificado
+#### Scenario: Cambio público del evento
 
-- **WHEN** se modifica correctamente la información pública o el estado de un evento
+- **WHEN** se modifica correctamente la información pública o el estado de un evento mediante una de las operaciones indicadas
 - **THEN** se invalidan las entradas de caché del detalle de ese evento y las consultas del catálogo que puedan contenerlo
 
 #### Scenario: Consulta posterior a la modificación
@@ -91,10 +89,37 @@ El sistema SHALL invalidar las entradas de caché relacionadas con un evento cua
 - **WHEN** se consulta el detalle o el catálogo después de una modificación confirmada
 - **THEN** el sistema devuelve información actualizada y no los datos anteriores almacenados
 
+### Requirement: Invalidación por cambio efectivo de disponibilidad
+
+Un cambio efectivo de disponibilidad que modifique el estado del evento SHALL invalidar las entradas de caché del catálogo y del detalle correspondiente.
+
+#### Scenario: Cambio de estado por disponibilidad
+
+- **WHEN** un cambio de disponibilidad modifica efectivamente el estado de un evento
+- **THEN** se invalidan las entradas de caché del catálogo y del detalle de ese evento
+
+#### Scenario: Disponibilidad sin cambio de estado
+
+- **WHEN** se actualiza la disponibilidad sin modificar el estado del evento
+- **THEN** el sistema no invalida las entradas de caché
+
+### Requirement: Invalidación después de confirmar la transacción
+
+Las invalidaciones de caché relacionadas con modificaciones de eventos SHALL ejecutarse después de confirmar la transacción correspondiente.
+
+#### Scenario: Transacción confirmada
+
+- **WHEN** una operación que modifica un evento confirma su transacción
+- **THEN** el sistema ejecuta la invalidación correspondiente
+
 #### Scenario: Transacción cancelada
 
 - **WHEN** una operación que modificaría un evento no confirma su transacción
 - **THEN** el sistema no ejecuta la invalidación correspondiente a esa modificación
+
+### Requirement: Exclusión de modificaciones de borradores
+
+Las modificaciones de eventos en estado BORRADOR que no afectan información pública SHALL NOT requerir invalidación de la caché pública.
 
 #### Scenario: Modificación de un borrador
 

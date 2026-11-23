@@ -40,7 +40,7 @@ public class Pago {
     @Column(nullable = false, length = 20)
     private EstadoPago estado;
 
-    @Column(name = "transaccion_pasarela")
+    @Column(name = "transaccion_pasarela", nullable = true)
     private String transaccionPasarela;
 
     @Column(name = "creado_en", nullable = false, updatable = false)

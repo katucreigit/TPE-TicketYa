@@ -39,6 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,6 +81,7 @@ class CompraServiceTest {
             return c;
         });
         when(compraRepository.findById(any(UUID.class))).thenAnswer(inv -> Optional.ofNullable(db.get(inv.getArgument(0))));
+        when(compraRepository.findWithDetallesById(any(UUID.class))).thenAnswer(inv -> Optional.ofNullable(db.get(inv.getArgument(0))));
         when(compraRepository.findByClienteIdAndIdempotencyKey(anyString(), anyString())).thenAnswer(inv -> {
             String cli = inv.getArgument(0);
             String key = inv.getArgument(1);
@@ -100,7 +102,11 @@ class CompraServiceTest {
     }
 
     private static ReservaRemota reservaVigente() {
-        return new ReservaRemota(RESERVA_ID, 42L, 11L, "cli-100", "PENDIENTE", 2,
+        return reservaConEstado("PENDIENTE");
+    }
+
+    private static ReservaRemota reservaConEstado(String estado) {
+        return new ReservaRemota(RESERVA_ID, 42L, 11L, "cli-100", estado, 2,
                 List.of(new ReservaRemota.Item(3, 10), new ReservaRemota.Item(3, 11)),
                 LocalDateTime.now().plusMinutes(10));
     }
@@ -172,44 +178,139 @@ class CompraServiceTest {
     }
 
     @Test
-    void timeoutDePasarelaMantieneCompraPendienteYReintentoReutilizaLaMismaClaveDeCobro() {
+    void timeoutDePasarelaMantieneCompraEnPagoInciertoYReintentoResuelveSinSegundoCobro() {
         when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(reservasClient.obtener(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
         when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
 
         assertThrows(GatewayTimeoutException.class,
                 () -> compraService.crear("cli-100", "k-5", requestConToken("tok_timeout")));
 
-        Compra pendiente = db.values().iterator().next();
-        assertEquals(EstadoCompra.PENDIENTE, pendiente.getEstado());
+        Compra incierta = db.values().iterator().next();
+        assertEquals(EstadoCompra.PAGO_INCIERTO, incierta.getEstado());
+        assertNotNull(incierta.getPago());
+        assertEquals(EstadoPago.INCIERTO, incierta.getPago().getEstado());
+        assertNull(incierta.getPago().getTransaccionPasarela());
+        assertEquals("4242", incierta.getPago().getUltimos4());
         verify(reservasClient, never()).liberar(any());
 
         ResultadoCompra reintento = compraService.crear("cli-100", "k-5", requestConToken("tok_timeout"));
 
-        assertEquals(pendiente.getId(), reintento.compra().compraId());
+        assertEquals(incierta.getId(), reintento.compra().compraId());
         assertEquals(EstadoCompra.APROBADA, reintento.compra().estado());
-        verify(pasarelaPagoService, times(2)).cobrar(
-                eq(CompraService.claveCobroDe(pendiente.getId())), eq("tok_timeout"), eq(new BigDecimal("90000.00")));
+        assertEquals(EstadoPago.APROBADO, db.get(incierta.getId()).getPago().getEstado());
+        assertNotNull(db.get(incierta.getId()).getPago().getTransaccionPasarela());
+        verify(pasarelaPagoService, times(1)).cobrar(
+                eq(CompraService.claveCobroDe(incierta.getId())), eq("tok_timeout"), eq(new BigDecimal("90000.00")));
+        verify(pasarelaPagoService, times(3)).consultarEstado(CompraService.claveCobroDe(incierta.getId()));
     }
 
     @Test
-    void reintentoTrasTimeoutConReservaVencidaPasaDePendienteAFallidaCon410SinNuevoCobro() {
+    void reintentoTrasTimeoutConReservaVencidaCompensaConReembolsoYMarcaFallidaCon410() {
         when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
         when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
 
         assertThrows(GatewayTimeoutException.class,
                 () -> compraService.crear("cli-100", "k-timeout-vencida", requestConToken("tok_timeout")));
 
-        Compra pendiente = db.values().iterator().next();
-        assertEquals(EstadoCompra.PENDIENTE, pendiente.getEstado());
-        reset(pasarelaPagoService);
+        Compra incierta = db.values().iterator().next();
+        assertEquals(EstadoCompra.PAGO_INCIERTO, incierta.getEstado());
 
-        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenThrow(new GoneException("La reserva vencio"));
+        when(reservasClient.obtener(RESERVA_ID, "cli-100")).thenReturn(reservaConEstado("VENCIDA"));
 
         assertThrows(GoneException.class,
                 () -> compraService.crear("cli-100", "k-timeout-vencida", requestConToken("tok_timeout")));
 
-        assertEquals(EstadoCompra.FALLIDA, db.get(pendiente.getId()).getEstado());
-        verifyNoInteractions(pasarelaPagoService);
+        Compra resuelta = db.get(incierta.getId());
+        assertEquals(EstadoCompra.FALLIDA, resuelta.getEstado());
+        assertEquals(EstadoPago.REEMBOLSADO, resuelta.getPago().getEstado());
+        verify(pasarelaPagoService).reembolsar(anyString());
+        verify(pasarelaPagoService, times(1)).cobrar(anyString(), anyString(), any());
+    }
+
+    @Test
+    void timeoutResueltoPorConsultaPreviaApruebaSinEnviarSegundoCobro() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+        AtomicBoolean programado = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            if (programado.compareAndSet(false, true)) {
+                String clave = inv.getArgument(0);
+                pasarelaPagoService.programarSimulacionIncertidumbre(clave, 0, false, EstadoPago.APROBADO);
+            }
+            return inv.callRealMethod();
+        }).when(pasarelaPagoService).cobrar(anyString(), eq("tok_ok"), any(BigDecimal.class));
+
+        ResultadoCompra resultado = compraService.crear("cli-100", "k-consulta-previa", requestConToken("tok_ok"));
+
+        assertFalse(resultado.repeticion());
+        assertEquals(EstadoCompra.APROBADA, resultado.compra().estado());
+        assertEquals(2, resultado.compra().entradas().size());
+        verify(pasarelaPagoService, times(1)).cobrar(anyString(), eq("tok_ok"), any(BigDecimal.class));
+        verify(pasarelaPagoService, times(1)).consultarEstado(CompraService.claveCobroDe(resultado.compra().compraId()));
+        verify(reservasClient).confirmar(RESERVA_ID);
+    }
+
+    @Test
+    void timeoutConCobroNoRegistradoPermiteReintentoControladoYAprueba() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+        AtomicBoolean programado = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            if (programado.compareAndSet(false, true)) {
+                String clave = inv.getArgument(0);
+                pasarelaPagoService.programarSimulacionTimeoutNoRegistrado(clave, 1, 0);
+            }
+            return inv.callRealMethod();
+        }).when(pasarelaPagoService).cobrar(anyString(), eq("tok_ok"), any(BigDecimal.class));
+
+        ResultadoCompra resultado = compraService.crear("cli-100", "k-reintento-no-reg", requestConToken("tok_ok"));
+
+        assertEquals(EstadoCompra.APROBADA, resultado.compra().estado());
+        String clave = CompraService.claveCobroDe(resultado.compra().compraId());
+        verify(pasarelaPagoService, times(1)).consultarEstado(clave);
+        verify(pasarelaPagoService, times(2)).cobrar(eq(clave), eq("tok_ok"), eq(new BigDecimal("90000.00")));
+        verify(reservasClient).confirmar(RESERVA_ID);
+    }
+
+    @Test
+    void reintentoSobrePagoInciertoResuelveRechazadoYLiberaReserva() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        assertThrows(GatewayTimeoutException.class,
+                () -> compraService.crear("cli-100", "k-timeout-rej", requestConToken("tok_timeout_rechazado")));
+
+        Compra incierta = db.values().iterator().next();
+        assertEquals(EstadoCompra.PAGO_INCIERTO, incierta.getEstado());
+        assertEquals(EstadoPago.INCIERTO, incierta.getPago().getEstado());
+
+        assertThrows(PaymentRequiredException.class,
+                () -> compraService.crear("cli-100", "k-timeout-rej", requestConToken("tok_timeout_rechazado")));
+
+        Compra rechazada = db.get(incierta.getId());
+        assertEquals(EstadoCompra.RECHAZADA, rechazada.getEstado());
+        assertEquals(EstadoPago.RECHAZADO, rechazada.getPago().getEstado());
+        verify(reservasClient).liberar(RESERVA_ID);
+        verify(pasarelaPagoService, times(1)).cobrar(anyString(), anyString(), any());
+    }
+
+    @Test
+    void reintentoSobrePagoInciertoConCuerpoDistintoResponde422() {
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        assertThrows(GatewayTimeoutException.class,
+                () -> compraService.crear("cli-100", "k-incierto-422", requestConToken("tok_timeout")));
+
+        CompraRequest otroCuerpo = new CompraRequest(
+                UUID.fromString("99999999-1111-1111-1111-111111111111"),
+                new MedioPagoRequest(TipoMedioPago.TARJETA_CREDITO, "tok_timeout", "4242"));
+
+        BusinessRuleException ex = assertThrows(BusinessRuleException.class,
+                () -> compraService.crear("cli-100", "k-incierto-422", otroCuerpo));
+        assertEquals(422, ex.getStatus().value());
+        assertEquals("IDEMPOTENCY_KEY_REUTILIZADA", ex.getCode());
     }
 
     @Test

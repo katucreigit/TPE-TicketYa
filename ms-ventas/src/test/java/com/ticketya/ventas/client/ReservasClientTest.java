@@ -238,5 +238,43 @@ class ReservasClientTest {
 
         assertThrows(BadGatewayException.class, () -> client.validar(ID, "cli-100"));
     }
+
+    // ---- obtener ----
+
+    @Test
+    void obtenerRecuperaReservaEnEstadosPendienteConfirmadaVencidaYLiberada() {
+        for (String estado : new String[]{"PENDIENTE", "CONFIRMADA", "VENCIDA", "LIBERADA"}) {
+            server.reset();
+            server.expect(requestTo(BASE + "/reservas/" + ID))
+                    .andExpect(method(HttpMethod.GET))
+                    .andExpect(header("X-User-Id", "cli-100"))
+                    .andExpect(header("X-User-Rol", "CLIENTE"))
+                    .andRespond(withSuccess(reservaJson(estado, "2026-11-10T17:05:00"), MediaType.APPLICATION_JSON));
+
+            ReservaRemota r = assertDoesNotThrow(() -> client.obtener(ID, "cli-100"));
+            assertEquals(ID, r.reservaId());
+            assertEquals(estado, r.estado());
+            server.verify();
+        }
+    }
+
+    @Test
+    void obtenerTraduceErrores403404Y502() {
+        server.expect(requestTo(BASE + "/reservas/" + ID))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN).contentType(MediaType.APPLICATION_JSON)
+                        .body(errorJson(403, "ACCESO_DENEGADO", "No tiene permiso")));
+        assertThrows(ForbiddenException.class, () -> client.obtener(ID, "cli-100"));
+
+        server.reset();
+        server.expect(requestTo(BASE + "/reservas/" + ID))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND).contentType(MediaType.APPLICATION_JSON)
+                        .body(errorJson(404, "NO_ENCONTRADO", "La reserva no existe")));
+        assertThrows(NotFoundException.class, () -> client.obtener(ID, "cli-100"));
+
+        server.reset();
+        server.expect(requestTo(BASE + "/reservas/" + ID))
+                .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+        assertThrows(BadGatewayException.class, () -> client.obtener(ID, "cli-100"));
+    }
 }
 

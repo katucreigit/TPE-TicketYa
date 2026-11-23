@@ -245,6 +245,7 @@ class FlujoCompraIntegracionTest {
     @Test
     void tokTimeoutResponde504YReintentoConMismaClaveCompletaLaCompraSinCobrarDosVeces() throws Exception {
         when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(reservasClient.obtener(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
         when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
 
         String body = """

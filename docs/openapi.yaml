@@ -765,9 +765,12 @@ paths:
         **Idempotencia:** repetir la misma solicitud con la misma `Idempotency-Key` devuelve la respuesta original
         (`200`) sin cobrar de nuevo. La misma clave con otro cuerpo responde `422`.
 
-        **Falla de la pasarela:** si no responde (`504`) o no se pudo conectar (`502`), la compra sigue `PENDIENTE`.
-        Reintentar con la misma `Idempotency-Key` reutiliza la misma compra y la misma clave de cobro, de modo que
-        a lo sumo se cobra una vez. Si la reserva venció, el reintento responde `410` y no se envía un nuevo cobro.
+        **Falla de la pasarela:** ante un timeout (`504`), ms-ventas consulta primero el estado del cobro en la pasarela
+        antes de reintentar (hasta el máximo configurado); si la incertidumbre persiste, la compra queda en `PAGO_INCIERTO`
+        con la reserva preservada para reconciliación automática periódica o reintento con la misma `Idempotency-Key`.
+        Si no se pudo conectar (`502`), la compra sigue `PENDIENTE`. En ambos casos, reintentar con la misma
+        `Idempotency-Key` reutiliza la misma compra y la misma clave de cobro, de modo que a lo sumo se cobra una vez.
+        Si la reserva venció y el pago había sido aprobado, se reembolsa automáticamente.
       parameters:
         - $ref: '#/components/parameters/XUserId'
         - $ref: '#/components/parameters/XUserRol'
@@ -864,7 +867,7 @@ paths:
         '502':
           $ref: '#/components/responses/BadGateway'
         '504':
-          description: La pasarela de pagos no respondió a tiempo después de recibir el cobro. La compra sigue `PENDIENTE` y se puede reintentar con la misma `Idempotency-Key`
+          description: La pasarela de pagos no respondió a tiempo o su estado continuó incierto tras las consultas previas y reintentos permitidos. La compra queda en estado `PAGO_INCIERTO` preservando la reserva asociada para su reconciliación automática periódica o reintento del cliente con la misma `Idempotency-Key`.
           content:
             application/json:
               schema:
@@ -1613,7 +1616,7 @@ components:
       enum: [PENDIENTE, CONFIRMADA, LIBERADA, VENCIDA]
     EstadoCompra:
       type: string
-      enum: [PENDIENTE, APROBADA, RECHAZADA, FALLIDA]
+      enum: [PENDIENTE, PAGO_INCIERTO, APROBADA, RECHAZADA, FALLIDA]
     EstadoEntrada:
       type: string
       enum: [EMITIDA, DEVOLUCION_SOLICITADA, REINTEGRO_PENDIENTE, REINTEGRADA, USADA]
@@ -1818,7 +1821,7 @@ components:
       required: [tipo, token]
       properties:
         tipo: { $ref: '#/components/schemas/TipoMedioPago' }
-        token: { type: string, description: 'Token de la pasarela mock: tok_ok (aprueba), tok_rechazado (rechaza) o tok_timeout (cobra pero no responde a tiempo)', example: tok_ok }
+        token: { type: string, description: 'Token de la pasarela mock: tok_ok (aprueba), tok_rechazado (rechaza), tok_timeout (timeout e incertidumbre inicial que resuelve aprobado), tok_timeout_rechazado (timeout e incertidumbre inicial que resuelve rechazado) o tok_timeout_no_concretado (timeout sin registro de cobro)', example: tok_ok }
         ultimos4: { type: string, example: '4242' }
     CompraRequest:
       type: object

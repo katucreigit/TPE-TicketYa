@@ -27,6 +27,14 @@ springdoc:
     path: /swagger-ui.html
 
 ticketya:
+  jobs:
+    habilitados: true
+  pagos:
+    max-reintentos: 2
+    reconciliacion:
+      intervalo-ms: 30000
+    pasarela:
+      consultas-inciertas-timeout: 2
   devolucion:
     horas-minimas-antes-del-evento: 72
     # Las fechas de los eventos son hora local sin offset: el plazo se mide en esta zona.

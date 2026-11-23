@@ -14,6 +14,7 @@ import com.ticketya.ventas.model.Compra;
 import com.ticketya.ventas.model.enums.EstadoCompra;
 import com.ticketya.ventas.repository.CompraRepository;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoConsultaCobro;
+import com.ticketya.ventas.trazabilidad.Correlacion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -56,19 +57,22 @@ public class ReconciliacionPagosJob {
             initialDelayString = "${ticketya.pagos.reconciliacion.intervalo-ms:30000}"
     )
     public void reconciliarPagosInciertos() {
-        List<Compra> inciertas = compraRepository.findByEstadoOrderByCreadaEnAsc(EstadoCompra.PAGO_INCIERTO);
-        for (Compra compra : inciertas) {
-            if (!compraService.intentarAdquirirResolucion(compra.getId())) {
-                continue;
+        // Cada corrida tiene su propio correlationId: relaciona las reconciliaciones con las llamadas salientes.
+        Correlacion.enProceso(() -> {
+            List<Compra> inciertas = compraRepository.findByEstadoOrderByCreadaEnAsc(EstadoCompra.PAGO_INCIERTO);
+            for (Compra compra : inciertas) {
+                if (!compraService.intentarAdquirirResolucion(compra.getId())) {
+                    continue;
+                }
+                try {
+                    reconciliarUna(compra);
+                } catch (RuntimeException ex) {
+                    log.warn("Error al reconciliar compra {}: {}", compra.getId(), ex.getMessage());
+                } finally {
+                    compraService.liberarResolucion(compra.getId());
+                }
             }
-            try {
-                reconciliarUna(compra);
-            } catch (RuntimeException ex) {
-                log.warn("Error al reconciliar compra {}: {}", compra.getId(), ex.getMessage());
-            } finally {
-                compraService.liberarResolucion(compra.getId());
-            }
-        }
+        });
     }
 
     private void reconciliarUna(Compra compra) {

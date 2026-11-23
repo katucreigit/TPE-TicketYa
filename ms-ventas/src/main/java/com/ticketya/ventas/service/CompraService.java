@@ -28,6 +28,10 @@ import com.ticketya.ventas.repository.CompraRepository;
 import com.ticketya.ventas.service.PasarelaPagoService.EstadoConsulta;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoCobro;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoConsultaCobro;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones.Operacion;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones.ResultadoReconciliacion;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -48,6 +52,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.ticketya.ventas.trazabilidad.RegistroOperaciones.datos;
 
 /**
  * Orquestador de la saga de compra (specs compra-entradas y resiliencia-pagos):
@@ -74,6 +80,7 @@ public class CompraService {
     private final PasarelaPagoService pasarelaPagoService;
     private final NotificacionesClient notificacionesClient;
     private final TransactionTemplate transaccion;
+    private final RegistroOperaciones registro;
     private final int maxReintentos;
     private final Set<String> clavesEnVuelo = ConcurrentHashMap.newKeySet();
     private final Set<UUID> comprasEnResolucion = ConcurrentHashMap.newKeySet();
@@ -85,7 +92,18 @@ public class CompraService {
                          NotificacionesClient notificacionesClient,
                          TransactionTemplate transaccion) {
         this(compraRepository, reservasClient, eventosClient, pasarelaPagoService,
-                notificacionesClient, transaccion, DEFAULT_MAX_REINTENTOS);
+                notificacionesClient, transaccion, DEFAULT_MAX_REINTENTOS, new RegistroOperaciones());
+    }
+
+    public CompraService(CompraRepository compraRepository,
+                         ReservasClient reservasClient,
+                         EventosClient eventosClient,
+                         PasarelaPagoService pasarelaPagoService,
+                         NotificacionesClient notificacionesClient,
+                         TransactionTemplate transaccion,
+                         int maxReintentos) {
+        this(compraRepository, reservasClient, eventosClient, pasarelaPagoService,
+                notificacionesClient, transaccion, maxReintentos, new RegistroOperaciones());
     }
 
     @Autowired
@@ -95,13 +113,28 @@ public class CompraService {
                          PasarelaPagoService pasarelaPagoService,
                          NotificacionesClient notificacionesClient,
                          TransactionTemplate transaccion,
-                         @Value("${ticketya.pagos.max-reintentos:2}") int maxReintentos) {
+                         @Value("${ticketya.pagos.max-reintentos:2}") int maxReintentos,
+                         ObjectProvider<RegistroOperaciones> registro) {
+        this(compraRepository, reservasClient, eventosClient, pasarelaPagoService,
+                notificacionesClient, transaccion, maxReintentos,
+                registro.getIfAvailable(RegistroOperaciones::new));
+    }
+
+    public CompraService(CompraRepository compraRepository,
+                         ReservasClient reservasClient,
+                         EventosClient eventosClient,
+                         PasarelaPagoService pasarelaPagoService,
+                         NotificacionesClient notificacionesClient,
+                         TransactionTemplate transaccion,
+                         int maxReintentos,
+                         RegistroOperaciones registro) {
         this.compraRepository = compraRepository;
         this.reservasClient = reservasClient;
         this.eventosClient = eventosClient;
         this.pasarelaPagoService = pasarelaPagoService;
         this.notificacionesClient = notificacionesClient;
         this.transaccion = transaccion;
+        this.registro = registro;
         this.maxReintentos = Math.max(0, maxReintentos);
     }
 
@@ -447,27 +480,64 @@ public class CompraService {
     void guardarPagoIncierto(UUID compraId, MedioPagoRequest medioPago, BigDecimal total) {
         transaccion.executeWithoutResult(status -> {
             Compra c = compraRepository.findById(compraId).orElseThrow();
+            EstadoCompra estadoAnterior = c.getEstado();
             c.setEstado(EstadoCompra.PAGO_INCIERTO);
             actualizarOCrearPago(c, medioPago, total, EstadoPago.INCIERTO, null);
             compraRepository.saveAndFlush(c);
+            if (estadoAnterior != EstadoCompra.PAGO_INCIERTO) {
+                registro.registrar(Operacion.PAGO_INCIERTO, datos(
+                        "compraId", c.getId(),
+                        "reservaId", c.getReservaId(),
+                        "eventoId", c.getEventoId(),
+                        "clienteId", c.getClienteId(),
+                        "monto", total));
+            }
         });
     }
 
     void guardarRechazada(UUID compraId, MedioPagoRequest medioPago, BigDecimal total) {
         transaccion.executeWithoutResult(status -> {
             Compra c = compraRepository.findById(compraId).orElseThrow();
+            EstadoCompra estadoAnterior = c.getEstado();
             c.setEstado(EstadoCompra.RECHAZADA);
             actualizarOCrearPago(c, medioPago, total, EstadoPago.RECHAZADO, null);
             compraRepository.saveAndFlush(c);
+            if (estadoAnterior != EstadoCompra.RECHAZADA) {
+                registro.registrar(Operacion.COMPRA_RECHAZADA, datos(
+                        "compraId", c.getId(),
+                        "reservaId", c.getReservaId(),
+                        "eventoId", c.getEventoId(),
+                        "clienteId", c.getClienteId(),
+                        "monto", total));
+                if (estadoAnterior == EstadoCompra.PAGO_INCIERTO) {
+                    registro.registrar(Operacion.PAGO_RECONCILIADO, datos(
+                            "compraId", c.getId(),
+                            "reservaId", c.getReservaId(),
+                            "eventoId", c.getEventoId(),
+                            "clienteId", c.getClienteId(),
+                            "monto", total,
+                            "resultado", ResultadoReconciliacion.RECHAZADA));
+                }
+            }
         });
     }
 
     void guardarFallidaNoConcretado(UUID compraId, BigDecimal total) {
         transaccion.executeWithoutResult(status -> {
             Compra c = compraRepository.findById(compraId).orElseThrow();
+            EstadoCompra estadoAnterior = c.getEstado();
             c.setEstado(EstadoCompra.FALLIDA);
             actualizarOCrearPago(c, null, total, EstadoPago.FALLIDO, null);
             compraRepository.saveAndFlush(c);
+            if (estadoAnterior == EstadoCompra.PAGO_INCIERTO) {
+                registro.registrar(Operacion.PAGO_RECONCILIADO, datos(
+                        "compraId", c.getId(),
+                        "reservaId", c.getReservaId(),
+                        "eventoId", c.getEventoId(),
+                        "clienteId", c.getClienteId(),
+                        "monto", total,
+                        "resultado", ResultadoReconciliacion.FALLIDA));
+            }
         });
     }
 
@@ -475,9 +545,29 @@ public class CompraService {
                                     BigDecimal total, String transaccionId) {
         transaccion.executeWithoutResult(status -> {
             Compra c = compraRepository.findById(compraId).orElseThrow();
+            EstadoCompra estadoAnterior = c.getEstado();
             c.setEstado(EstadoCompra.FALLIDA);
             actualizarOCrearPago(c, medioPago, total, EstadoPago.REEMBOLSADO, transaccionId);
             compraRepository.saveAndFlush(c);
+            if (estadoAnterior != EstadoCompra.FALLIDA) {
+                registro.registrar(Operacion.COMPRA_REEMBOLSADA, datos(
+                        "compraId", c.getId(),
+                        "reservaId", c.getReservaId(),
+                        "eventoId", c.getEventoId(),
+                        "clienteId", c.getClienteId(),
+                        "monto", total,
+                        "transaccion", transaccionId));
+                if (estadoAnterior == EstadoCompra.PAGO_INCIERTO) {
+                    registro.registrar(Operacion.PAGO_RECONCILIADO, datos(
+                            "compraId", c.getId(),
+                            "reservaId", c.getReservaId(),
+                            "eventoId", c.getEventoId(),
+                            "clienteId", c.getClienteId(),
+                            "monto", total,
+                            "transaccion", transaccionId,
+                            "resultado", ResultadoReconciliacion.REEMBOLSADA));
+                }
+            }
         });
     }
 
@@ -486,6 +576,7 @@ public class CompraService {
                                              ReservaRemota reserva, SnapshotCompra snapshot) {
         return transaccion.execute(status -> {
             Compra c = compraRepository.findById(compraId).orElseThrow();
+            EstadoCompra estadoAnterior = c.getEstado();
             c.setTotal(total);
             c.setEstado(EstadoCompra.APROBADA);
             actualizarOCrearPago(c, medioPago, total, EstadoPago.APROBADO, transaccionId);
@@ -504,6 +595,27 @@ public class CompraService {
             }
 
             Compra guardada = compraRepository.saveAndFlush(c);
+            if (estadoAnterior != EstadoCompra.APROBADA) {
+                registro.registrar(Operacion.COMPRA_APROBADA, datos(
+                        "compraId", guardada.getId(),
+                        "reservaId", guardada.getReservaId(),
+                        "eventoId", guardada.getEventoId(),
+                        "clienteId", guardada.getClienteId(),
+                        "monto", guardada.getTotal(),
+                        "entradas", guardada.getEntradas().size(),
+                        "transaccion", transaccionId));
+                if (estadoAnterior == EstadoCompra.PAGO_INCIERTO) {
+                    registro.registrar(Operacion.PAGO_RECONCILIADO, datos(
+                            "compraId", guardada.getId(),
+                            "reservaId", guardada.getReservaId(),
+                            "eventoId", guardada.getEventoId(),
+                            "clienteId", guardada.getClienteId(),
+                            "monto", guardada.getTotal(),
+                            "entradas", guardada.getEntradas().size(),
+                            "transaccion", transaccionId,
+                            "resultado", ResultadoReconciliacion.APROBADA));
+                }
+            }
             return CompraResponse.from(guardada);
         });
     }

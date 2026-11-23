@@ -106,27 +106,25 @@ class NotificacionesClientTest {
 
     @Test
     void resolucionDeEmailCubreExplicitoValidoInvalidoClienteIdEmailYClienteIdSimple() {
-        // 1) Explicito invalido -> fallback determinista desde usuarioId
         server.expect(requestTo(BASE + "/internal/notificaciones"))
                 .andExpect(jsonPath("$.destinatario.email").value("101@ticketya.local"))
                 .andRespond(withStatus(HttpStatus.ACCEPTED));
-
-        client.enviar(TipoNotificacion.COMPRA_CONFIRMADA, "101", "no-es-un-email",
-                Map.of("compraId", "c1"), "k1");
-
-        // 2) Sin email explicito pero usuarioId ya es email -> usa usuarioId
         server.expect(requestTo(BASE + "/internal/notificaciones"))
                 .andExpect(jsonPath("$.destinatario.email").value("ana@ticketya.com"))
                 .andRespond(withStatus(HttpStatus.ACCEPTED));
-
-        client.enviar(TipoNotificacion.COMPRA_CONFIRMADA, "ana@ticketya.com", null,
-                Map.of("compraId", "c2"), "k2");
-
-        // 3) usuarioId con caracteres especiales -> sanitizado determinista
         server.expect(requestTo(BASE + "/internal/notificaciones"))
                 .andExpect(jsonPath("$.destinatario.email").value("cli-100-abc@ticketya.local"))
                 .andRespond(withStatus(HttpStatus.ACCEPTED));
 
+        // 1) Explicito invalido -> fallback determinista desde usuarioId
+        client.enviar(TipoNotificacion.COMPRA_CONFIRMADA, "101", "no-es-un-email",
+                Map.of("compraId", "c1"), "k1");
+
+        // 2) Sin email explicito pero usuarioId ya es email -> usa usuarioId
+        client.enviar(TipoNotificacion.COMPRA_CONFIRMADA, "ana@ticketya.com", null,
+                Map.of("compraId", "c2"), "k2");
+
+        // 3) usuarioId con caracteres especiales -> sanitizado determinista
         client.enviar(TipoNotificacion.COMPRA_CONFIRMADA, "cli 100/abc", null,
                 Map.of("compraId", "c3"), "k3");
 

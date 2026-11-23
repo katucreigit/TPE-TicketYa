@@ -13,8 +13,12 @@ import com.ticketya.ventas.model.enums.TipoReintegro;
 import com.ticketya.ventas.repository.EntradaRepository;
 import com.ticketya.ventas.repository.ReintegroRepository;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoReembolso;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones.Operacion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -27,6 +31,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+
+import static com.ticketya.ventas.trazabilidad.RegistroOperaciones.datos;
 
 /**
  * Reintegro masivo de las entradas de un evento cancelado (spec cancelacion-evento-reintegros).
@@ -48,17 +54,40 @@ public class CancelacionEventoService {
     private final PasarelaPagoService pasarelaPagoService;
     private final NotificacionesClient notificacionesClient;
     private final TransactionTemplate transaccion;
+    private final RegistroOperaciones registro;
 
     public CancelacionEventoService(EntradaRepository entradaRepository,
                                     ReintegroRepository reintegroRepository,
                                     PasarelaPagoService pasarelaPagoService,
                                     NotificacionesClient notificacionesClient,
                                     TransactionTemplate transaccion) {
+        this(entradaRepository, reintegroRepository, pasarelaPagoService,
+                notificacionesClient, transaccion, new RegistroOperaciones());
+    }
+
+    @Autowired
+    public CancelacionEventoService(EntradaRepository entradaRepository,
+                                    ReintegroRepository reintegroRepository,
+                                    PasarelaPagoService pasarelaPagoService,
+                                    NotificacionesClient notificacionesClient,
+                                    TransactionTemplate transaccion,
+                                    ObjectProvider<RegistroOperaciones> registro) {
+        this(entradaRepository, reintegroRepository, pasarelaPagoService,
+                notificacionesClient, transaccion, registro.getIfAvailable(RegistroOperaciones::new));
+    }
+
+    public CancelacionEventoService(EntradaRepository entradaRepository,
+                                    ReintegroRepository reintegroRepository,
+                                    PasarelaPagoService pasarelaPagoService,
+                                    NotificacionesClient notificacionesClient,
+                                    TransactionTemplate transaccion,
+                                    RegistroOperaciones registro) {
         this.entradaRepository = entradaRepository;
         this.reintegroRepository = reintegroRepository;
         this.pasarelaPagoService = pasarelaPagoService;
         this.notificacionesClient = notificacionesClient;
         this.transaccion = transaccion;
+        this.registro = registro;
     }
 
     /** Datos para llamar a la pasarela fuera de la transaccion. */
@@ -83,17 +112,22 @@ public class CancelacionEventoService {
      * Un evento sin entradas (o desconocido para ms-ventas) responde con contadores en cero.
      */
     public CancelacionEventoResponse procesar(Long eventoId) {
-        transaccion.executeWithoutResult(status -> marcarPendientes(eventoId));
+        Integer marcadasTx = transaccion.execute(status -> marcarPendientes(eventoId));
+        int marcadas = marcadasTx != null ? marcadasTx : 0;
 
         List<ReintegroPendiente> pendientes = transaccion.execute(status ->
                 reintegroRepository.buscarPorEvento(eventoId, TIPO, EstadoReintegro.PENDIENTE).stream()
                         .map(CancelacionEventoService::pendienteDe)
                         .toList());
 
+        int completadosEnCorrida = 0;
         for (ReintegroPendiente pendiente : pendientes) {
-            reintegrar(pendiente);
+            if (reintegrar(pendiente)) {
+                completadosEnCorrida++;
+            }
         }
 
+        boolean huboCambios = marcadas > 0 || completadosEnCorrida > 0;
         ResultadoCancelacion resultado = transaccion.execute(status -> {
             long completados = reintegroRepository.countByEntradaEventoIdAndTipoAndEstado(
                     eventoId, TIPO, EstadoReintegro.COMPLETADO);
@@ -103,6 +137,13 @@ public class CancelacionEventoService {
                     eventoId, completados + pendientesRestantes, completados, pendientesRestantes);
             List<ResumenComprador> compradores = construirResumenCompradores(
                     reintegroRepository.buscarTodosPorEvento(eventoId, TIPO));
+            if (huboCambios) {
+                registro.registrar(Operacion.CANCELACION_EVENTO, datos(
+                        "eventoId", eventoId,
+                        "entradasAfectadas", respuesta.entradasAfectadas(),
+                        "reintegrosCompletados", respuesta.reintegrosCompletados(),
+                        "reintegrosPendientes", respuesta.reintegrosPendientes()));
+            }
             return new ResultadoCancelacion(respuesta, compradores);
         });
 
@@ -189,7 +230,7 @@ public class CancelacionEventoService {
     }
 
     /** Pasa las entradas EMITIDA a REINTEGRO_PENDIENTE y les crea (o reutiliza) su reintegro de cancelacion. */
-    private void marcarPendientes(Long eventoId) {
+    private int marcarPendientes(Long eventoId) {
         List<Entrada> emitidas = entradaRepository.bloquearPorEventoYEstado(eventoId, EstadoEntrada.EMITIDA);
         for (Entrada entrada : emitidas) {
             if (reintegroRepository.findByEntradaIdAndTipo(entrada.getId(), TIPO).isEmpty()) {
@@ -206,6 +247,7 @@ public class CancelacionEventoService {
         if (!emitidas.isEmpty()) {
             log.info("Evento {} cancelado: {} entradas pasan a REINTEGRO_PENDIENTE", eventoId, emitidas.size());
         }
+        return emitidas.size();
     }
 
     private static ReintegroPendiente pendienteDe(Reintegro reintegro) {
@@ -219,22 +261,24 @@ public class CancelacionEventoService {
      * Reintegra una entrada. Una falla (de la pasarela o al registrar el resultado) se registra y deja la entrada
      * REINTEGRO_PENDIENTE; el reintento usa la misma clave, asi que la pasarela no paga dos veces.
      */
-    private void reintegrar(ReintegroPendiente pendiente) {
+    private boolean reintegrar(ReintegroPendiente pendiente) {
         try {
             ResultadoReembolso resultado = pasarelaPagoService.reintegrar(
                     DevolucionService.claveReintegroDe(pendiente.reintegroId()),
                     pendiente.transaccionPago(), pendiente.monto());
-            transaccion.executeWithoutResult(status -> completar(pendiente.reintegroId(), resultado.transaccionId()));
+            return Boolean.TRUE.equals(
+                    transaccion.execute(status -> completar(pendiente.reintegroId(), resultado.transaccionId())));
         } catch (RuntimeException ex) {
             log.warn("No se pudo reintegrar la entrada {} (reintegro {}); queda REINTEGRO_PENDIENTE: {}",
                     pendiente.entradaId(), pendiente.reintegroId(), ex.getMessage());
+            return false;
         }
     }
 
-    private void completar(UUID reintegroId, String transaccionReintegro) {
+    private boolean completar(UUID reintegroId, String transaccionReintegro) {
         Reintegro reintegro = reintegroRepository.bloquear(reintegroId).orElseThrow();
         if (reintegro.getEstado() == EstadoReintegro.COMPLETADO) {
-            return;
+            return false;
         }
         reintegro.setEstado(EstadoReintegro.COMPLETADO);
         reintegro.setTransaccionPasarela(transaccionReintegro);
@@ -242,5 +286,15 @@ public class CancelacionEventoService {
         Entrada entrada = reintegro.getEntrada();
         entrada.setEstado(EstadoEntrada.REINTEGRADA);
         entradaRepository.saveAndFlush(entrada);
+        registro.registrar(Operacion.REINTEGRO_COMPLETADO, datos(
+                "reintegroId", reintegro.getId(),
+                "tipo", TIPO,
+                "entradaId", entrada.getId(),
+                "compraId", entrada.getCompra().getId(),
+                "eventoId", entrada.getEventoId(),
+                "clienteId", entrada.getCompra().getClienteId(),
+                "monto", reintegro.getMonto(),
+                "transaccion", transaccionReintegro));
+        return true;
     }
 }

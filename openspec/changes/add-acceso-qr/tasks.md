@@ -3,7 +3,7 @@
 ## 1. Modelo, repositorio y soporte Testcontainers
 
 - [x] 1.1 Agregar las dependencias de Testcontainers (`spring-boot-testcontainers`, `testcontainers:junit-jupiter`, `testcontainers:postgresql`, versión `1.21.4`) en `ms-ventas/pom.xml` y crear `TestcontainersConfiguration` (`postgres:16-alpine`), verificando que `mvn -f ms-ventas/pom.xml test-compile` compila sin errores.
-- [ ] 1.2 Agregar las columnas `usada_en` y `validada_por` en `Entrada`, exponer `usadaEn` y `validadaPor` (omitidos cuando son `null`) en `EntradaResponse`, y crear `ValidarEntradaRequest` (`codigoQr`, `eventoId`), verificando que los tests existentes de `ms-ventas` compilan y pasan.
+- [x] 1.2 Agregar las columnas `usada_en` y `validada_por` en `Entrada`, exponer `usadaEn` y `validadaPor` (omitidos cuando son `null`) en `EntradaResponse`, y crear `ValidarEntradaRequest` (`codigoQr`, `eventoId`), verificando que los tests existentes de `ms-ventas` compilan y pasan.
 - [ ] 1.3 Agregar en `EntradaRepository` `findByCodigoQr`, el `UPDATE` atómico `marcarUsadaSiEmitida` (`@Modifying(clearAutomatically = true, flushAutomatically = true)`) y el `UPDATE` condicional `transicionarDesdeEmitida`, y verificar en `EntradaRepositoryTest` (PostgreSQL real vía Testcontainers) tanto el éxito como 0 filas por cada motivo (QR inexistente, formato no UUID, evento incorrecto, `USADA`, `DEVOLUCION_SOLICITADA`, `REINTEGRO_PENDIENTE`, `REINTEGRADA`).
 
 ## 2. Validación de QR en servicio y controlador

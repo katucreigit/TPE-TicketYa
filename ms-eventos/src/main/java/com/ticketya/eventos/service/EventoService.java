@@ -47,6 +47,10 @@ import com.ticketya.eventos.exception.BusinessRuleException;
 import com.ticketya.eventos.exception.BadGatewayException;
 
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -65,6 +69,7 @@ public class EventoService {
     private final SectorRepository sectorRepository;
     private final ReservasClient reservasClient;
     private final VentasClient ventasClient;
+    private CacheManager cacheManager;
 
     public EventoService(
             EventoRepository eventoRepository,
@@ -84,6 +89,11 @@ ReservasClient reservasClient,
         this.sectorRepository = sectorRepository;
         this.reservasClient = reservasClient;
         this.ventasClient = ventasClient;
+    }
+
+    @Autowired
+    public void setCacheManager(CacheManager cacheManager) {
+        this.cacheManager = cacheManager;
     }
 
     @Transactional
@@ -327,6 +337,7 @@ public EventoResponse publicar(Long eventoId, Long organizadorId) {
     evento.setEstado(EstadoEvento.PUBLICADO);
 
     Evento publicado = eventoRepository.save(evento);
+    invalidarCatalogoYDetalle(eventoId);
 
     return convertirRespuesta(publicado);
 
@@ -364,6 +375,7 @@ public EventoResponse suspender(Long eventoId, String rol) {
     evento.setEstado(EstadoEvento.SUSPENDIDO);
 
     Evento suspendido = eventoRepository.save(evento);
+    invalidarCatalogoYDetalle(eventoId);
 
     return convertirRespuesta(suspendido);
 }
@@ -399,6 +411,7 @@ public EventoResponse reanudar(Long eventoId, String rol) {
     evento.setEstado(EstadoEvento.PUBLICADO);
 
     Evento reanudado = eventoRepository.save(evento);
+    invalidarCatalogoYDetalle(eventoId);
 
     return convertirRespuesta(reanudado);
 }
@@ -447,10 +460,12 @@ public EventoResponse reanudar(Long eventoId, String rol) {
         evento.setEstado(EstadoEvento.CANCELADO);
 
         Evento cancelado = eventoRepository.save(evento);
+        invalidarCatalogoYDetalle(eventoId);
 
         return convertirRespuesta(cancelado);
     }
 
+    @Cacheable(cacheNames = "catalogoEventos")
     @Transactional(readOnly = true)
     public PageEventoResumenResponse buscarEventos(
             TipoEvento tipo,
@@ -616,6 +631,11 @@ public EventoResponse reanudar(Long eventoId, String rol) {
         return 5;
     }
 
+    @Cacheable(
+            cacheNames = "detalleEvento",
+            key = "#eventoId",
+            unless = "#result.estado().name() == 'BORRADOR'"
+    )
     @Transactional(readOnly = true)
     public EventoResponse obtenerEvento(Long eventoId, Long usuarioId, String rol) {
 
@@ -707,10 +727,33 @@ public void actualizarDisponibilidad(Long eventoId, boolean agotado) {
         return;
     }
 
-    evento.setEstado(
-            agotado ? EstadoEvento.AGOTADO : EstadoEvento.PUBLICADO
-    );
+    EstadoEvento nuevoEstado = agotado
+            ? EstadoEvento.AGOTADO
+            : EstadoEvento.PUBLICADO;
 
+    if (evento.getEstado() == nuevoEstado) {
+        return;
+    }
+
+    evento.setEstado(nuevoEstado);
     eventoRepository.save(evento);
+    invalidarCatalogoYDetalle(eventoId);
 }
+
+    private void invalidarCatalogoYDetalle(Long eventoId) {
+        if (cacheManager == null) {
+            return;
+        }
+
+        Cache catalogo = cacheManager.getCache("catalogoEventos");
+        if (catalogo != null) {
+            catalogo.clear();
+        }
+
+        Cache detalle = cacheManager.getCache("detalleEvento");
+        if (detalle != null) {
+            detalle.evict(eventoId);
+        }
+    }
+
 }

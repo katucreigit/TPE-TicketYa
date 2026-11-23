@@ -30,8 +30,9 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-# URLs de los otros microservicios (llamadas /internal/**, sin gateway)
 ticketya:
+  cache:
+    ttl-minutes: ${CACHE_TTL_MINUTES:5}
   services:
     reservas-url: ${MS_RESERVAS_URL:http://localhost:8082}
     ventas-url: ${MS_VENTAS_URL:http://localhost:8083}

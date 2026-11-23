@@ -35,10 +35,38 @@ Incluye todo lo de la Entrega 1 más:
 | `ms-reservas` | 8082 | `db_reservas` (5434) | Inventario, reservas temporales y control de doble venta |
 | `ms-ventas` | 8083 | `db_ventas` (5435) | Compras, pagos, entradas con QR, devoluciones y reintegros |
 | `ms-notificaciones` | 8085 | `db_notificaciones` (MongoDB, 27017) | Notificaciones a clientes (email simulado) con reintentos y deduplicación |
+| `frontend` | 4200 | - | Interfaz web en Angular 19 que consume la API del gateway |
 
 Cada microservicio tiene su propia base (PostgreSQL, o MongoDB en el caso de `ms-notificaciones`) y no comparte datos con los demás.
 Los endpoints `/internal/**` se usan solo entre servicios y el gateway no los expone.
 El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
+
+## Frontend
+
+Interfaz web en Angular 19 con Bootstrap 5. Consume la API del gateway en `localhost:8080`.
+
+Páginas:
+
+| Ruta | Descripción |
+|---|---|
+| `/login` | Inicio de sesión |
+| `/register` | Registro con selección de rol (CLIENTE / ORGANIZADOR) |
+| `/events` | Listado de eventos con filtros por nombre y ciudad |
+| `/events/:id` | Detalle del evento, sectores y precios |
+| `/events/:id/checkout` | Reserva y pago (requiere sesión como CLIENTE) |
+| `/my-tickets` | Entradas compradas, QR y solicitud de devolución |
+
+El JWT se adjunta automáticamente en cada request con un interceptor. Las rutas de checkout y mis entradas tienen un guard que redirige al login si no hay sesión activa.
+
+### Levantar el frontend
+
+```
+cd frontend
+npm install
+ng serve
+```
+
+Disponible en `http://localhost:4200`.
 
 ## Requisitos
 
@@ -305,6 +333,7 @@ ms-eventos/        Microservicio de eventos
 ms-reservas/       Microservicio de reservas
 ms-ventas/         Microservicio de ventas
 ms-notificaciones/ Microservicio de notificaciones (MongoDB)
+frontend/          Interfaz web Angular 19
 docs/              Historias de usuario, arquitectura, modelo de datos y OpenAPI
 openspec/          Especificaciones y cambios
 postman/           Colección de requests

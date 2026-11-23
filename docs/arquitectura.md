@@ -27,12 +27,30 @@ El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondie
 
 | Ruta externa | Destino |
 |---|---|
+| `/api/auth/**` | ms-auth `:8084` |
 | `/api/lugares/**`, `/api/eventos/**` | ms-eventos `:8081` |
 | `/api/eventos/*/disponibilidad`, `/api/eventos/*/sectores/*/asientos`, `/api/reservas/**` | ms-reservas `:8082` |
 | `/api/compras/**`, `/api/entradas/**`, `/api/devoluciones/**` | ms-ventas `:8083` |
 | `/internal/**` | no se enruta (`404`) |
 
 Las rutas de disponibilidad y asientos pertenecen a ms-reservas pero comparten el prefijo `/api/eventos/`. Por eso deben declararse **antes** que `/api/eventos/**` en la configuración del gateway, para que tengan prioridad.
+
+### Trazabilidad del API Gateway (E2)
+
+El Gateway recibe el header `X-Correlation-Id` o genera uno nuevo si no fue enviado. Propaga el mismo identificador hacia el microservicio destino y lo devuelve en la respuesta. Además, registra cada solicitud HTTP con método, endpoint, usuario, código de respuesta, tiempo de procesamiento y `correlationId`. Esta implementación cubre la trazabilidad en el Gateway; la propagación y centralización de registros entre microservicios se completarán en la integración.
+
+### Resiliencia del API Gateway (E2)
+
+El API Gateway incorpora mecanismos de tolerancia a fallos para evitar esperas prolongadas y controlar la indisponibilidad de los microservicios.
+
+- **Timeouts HTTP:** limita el tiempo de conexión a 2000 ms y el tiempo de espera de respuesta a 5 segundos.
+- **Circuit Breaker:** utiliza circuitos independientes para `ms-auth`, `ms-reservas`, `ms-eventos` y `ms-ventas`. Cada circuito evalúa una ventana de 10 llamadas, requiere al menos 5 para calcular la tasa de fallos y se abre cuando esta alcanza el 50%.
+- **Recuperación:** permanece abierto durante 10 segundos y luego pasa a `HALF_OPEN`, donde permite hasta 3 llamadas de prueba para determinar si el servicio se recuperó.
+- **Fallback:** cuando una ruta no puede completar la solicitud por la indisponibilidad del destino, devuelve HTTP 503 (`Service Unavailable`) con el código `SERVICIO_NO_DISPONIBLE` y un mensaje informativo.
+- **Manejo global de errores:** el Gateway también cuenta con un manejador para errores de conexión, resolución de host y timeout que llegan al filtro global.
+
+La configuración se encuentra en `api-gateway/src/main/resources/application.yml`. El fallback está implementado en `FallbackController` y el manejo global de errores en `GatewayErrorHandler`.
+
 
 ## 2. Diagrama de módulos
 

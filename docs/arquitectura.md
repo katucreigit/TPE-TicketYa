@@ -1,4 +1,4 @@
-# TicketYa – Arquitectura (Entrega 1)
+# TicketYa – Arquitectura (Entrega 2)
 
 ## 1. Microservicios y responsabilidades
 
@@ -12,7 +12,7 @@
 | **ms-fila** (E2) | 8086 | Redis 7 | Fila virtual por evento: ingreso en orden de llegada, posición, habilitación por tandas con ventana de compra y consulta interna para ms-reservas | 6 |
 | **ms-recomendaciones** (E2) | 8087 | `db_recomendaciones` (MongoDB) | Preferencias de cada cliente, registro de compras confirmadas que avisa ms-ventas, recomendaciones por puntaje y "también compraron" | 10 |
 
-Cada servicio es un proyecto Spring Boot independiente (su propio `pom.xml`) que se construye y ejecuta por separado. Cada uno tiene su propia base relacional (schemas separados, levantadas con Docker). La pasarela de pagos es un componente mock dentro de ms-ventas (`PagoGateway` con implementación `MockPagoGateway`).
+Cada servicio es un proyecto Spring Boot independiente (su propio `pom.xml`) que se construye y ejecuta por separado. Cada uno tiene su propia base: PostgreSQL para los servicios transaccionales, MongoDB para `ms-notificaciones` y `ms-recomendaciones`, y Redis para `ms-fila`. Todas se levantan con Docker y ningún servicio lee la base de otro. La pasarela de pagos es un componente mock dentro de ms-ventas (`PagoGateway` con implementación `MockPagoGateway`).
 
 ### API pública por servicio
 
@@ -42,9 +42,25 @@ El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondie
 
 Las rutas de disponibilidad y asientos pertenecen a ms-reservas pero comparten el prefijo `/api/eventos/`. Por eso deben declararse **antes** que `/api/eventos/**` en la configuración del gateway, para que tengan prioridad.
 
-### Trazabilidad del API Gateway (E2)
+**Por qué un API Gateway.** Es la única puerta de entrada, y concentra lo que de otro modo cada servicio tendría que repetir:
 
-El Gateway recibe el header `X-Correlation-Id` o genera uno nuevo si no fue enviado. Propaga el mismo identificador hacia el microservicio destino y lo devuelve en la respuesta. Además, registra cada solicitud HTTP con método, endpoint, usuario, código de respuesta, tiempo de procesamiento y `correlationId`. Esta implementación cubre la trazabilidad en el Gateway; la propagación y centralización de registros entre microservicios se completarán en la integración.
+- **Validación del JWT en un solo lugar.** Los microservicios no conocen el secreto ni parsean tokens: confían en `X-User-Id` y `X-User-Rol`, que el gateway reemplaza siempre por los del token, así que un cliente no puede hacerse pasar por otro mandando esos headers.
+- **Aislamiento de las rutas internas.** `/internal/**` no tiene ruta, así que solo se alcanza dentro de la red de los contenedores.
+- **Un único origen para el frontend**, con CORS configurado una sola vez (`http://localhost:4200`).
+- **Un punto común para la resiliencia** (timeouts y circuit breaker por servicio) y para el `X-Correlation-Id`.
+
+El costo es un salto de red más y un componente que tiene que estar disponible. Se mitiga porque el gateway no guarda estado y se puede replicar detrás de un balanceador.
+
+### Trazabilidad (E2)
+
+El Gateway recibe el header `X-Correlation-Id` o genera uno nuevo si no fue enviado. Propaga el mismo identificador hacia el microservicio destino y lo devuelve en la respuesta. Además, registra cada solicitud HTTP con método, endpoint, usuario, código de respuesta, tiempo de procesamiento y `correlationId`. Estado en los microservicios:
+
+- `ms-reservas`, `ms-ventas`, `ms-fila` y `ms-recomendaciones` conservan el identificador recibido o generan uno, lo propagan en sus llamadas salientes y lo escriben en cada línea de log. Además registran `HTTP_REQUEST` por solicitud.
+- `ms-reservas`, `ms-ventas` y `ms-fila` registran además sus operaciones críticas (`OPERACION_CRITICA`).
+- `ms-notificaciones` guarda el `correlationId` en cada notificación.
+- `ms-eventos` y `ms-auth` todavía no lo manejan.
+
+Los registros salen por la salida estándar de cada contenedor en formato `clave=valor`, listos para un recolector, pero no hay una herramienta de centralización desplegada. La secuencia completa está en `diagramas.md` (4.8).
 
 ### Resiliencia del API Gateway (E2)
 
@@ -57,6 +73,13 @@ El API Gateway incorpora mecanismos de tolerancia a fallos para evitar esperas p
 - **Manejo global de errores:** el Gateway también cuenta con un manejador para errores de conexión, resolución de host y timeout que llegan al filtro global.
 
 La configuración se encuentra en `api-gateway/src/main/resources/application.yml`. El fallback está implementado en `FallbackController` y el manejo global de errores en `GatewayErrorHandler`.
+
+**Por qué un circuit breaker por servicio.** Sin él, si un microservicio está caído o colgado, cada solicitud espera hasta el timeout y ocupa recursos del gateway. Con una avalancha (por ejemplo, la apertura de una venta) esa espera se propaga a los demás servicios. Con el circuito abierto, el gateway responde `503` al instante y deja que el servicio se recupere. Que haya un circuito por servicio evita que la caída de `ms-ventas`, por ejemplo, corte también la consulta del catálogo.
+
+Entre microservicios no hay circuit breaker. Cada llamada tiene timeouts propios y una política según su criticidad:
+
+- Las que no pueden fallar en silencio (confirmar o liberar una reserva) propagan el error.
+- Las auxiliares son best-effort o fail-open: el aviso a `ms-notificaciones` y a `ms-recomendaciones`, y la consulta a `ms-fila`.
 
 
 ## 2. Diagrama de módulos
@@ -77,7 +100,8 @@ Dependencias síncronas entre servicios (todas REST):
 | ms-ventas | ms-eventos | Obtener precios, estado y fecha del evento al comprar |
 | ms-ventas (E2) | ms-recomendaciones | Avisar cada compra confirmada (`POST /internal/compras`). Best-effort: timeouts de 500 ms y 1000 ms; si falla, la compra sigue igual |
 | ms-recomendaciones (E2) | ms-eventos | Leer el catálogo publicado (`GET /eventos`), con copia en memoria de 30 s; si falla, usa la última copia o una lista vacía (`degradado: true`) |
-| ms-ventas, ms-eventos (E2, pendiente) | ms-notificaciones | Pedir notificaciones de compra confirmada, evento cancelado o modificado y artista favorito en la ciudad |
+| ms-ventas (E2) | ms-notificaciones | Pedir la notificación de compra confirmada y la de evento cancelado a cada comprador. Best-effort: una falla nunca afecta la compra ni la cancelación |
+| ms-eventos (E2, pendiente) | ms-notificaciones | Evento modificado y artista favorito en la ciudad: todavía no implementado |
 
 Las rutas `/internal/**` solo se invocan entre servicios; el gateway no las expone.
 
@@ -110,6 +134,15 @@ Si no afecta ninguna fila, no había cupo (`409`). Se agrega `CHECK (disponibles
 
 **Idempotencia del pago.** `compra` tiene `UNIQUE(cliente_id, idempotency_key)` y guarda un hash del request. Un reintento con la misma clave devuelve la respuesta original sin volver a cobrar. `confirmar` y `liberar` son idempotentes.
 
+**Con varias instancias de ms-reservas.** Ninguna de las garantías depende de memoria compartida ni de locks en la JVM:
+
+- **Límite por cliente.** Lo serializa un *advisory lock* de PostgreSQL por cliente y evento, dentro de la transacción de la reserva. Dos pedidos simultáneos del mismo cliente, aunque lleguen a instancias distintas, se cuentan de a uno.
+- **Inventario cerrado.** El inventario se lee con `FOR SHARE`, así que un cierre concurrente (suspensión o cancelación) espera a que terminen las reservas en curso.
+- **Vencimiento.** El job de vencimiento toma las reservas con `FOR UPDATE SKIP LOCKED`, de modo que varias instancias se reparten el trabajo sin vencer dos veces la misma reserva.
+- **Hora.** Las fechas salen siempre de la base (`localtimestamp`), no del reloj de cada instancia.
+
+La fila virtual y la caché del catálogo no participan de esta decisión: la fila solo decide quién puede intentar reservar, y la caché no guarda disponibilidad.
+
 **Prueba.** Un test lanza N hilos (por ejemplo 50) con un `CountDownLatch` que reservan el mismo asiento, y otro que compite por el último cupo de una zona; verifica exactamente un éxito y N-1 respuestas `409`. Se ejecuta contra una base real (Testcontainers o la de Docker), porque H2 no refleja bien el comportamiento de bloqueos.
 
 ## 4. Consistencia en la compra (saga orquestada por ms-ventas)
@@ -126,7 +159,19 @@ No existe una transacción que abarque los tres servicios, así que ms-ventas co
 
 **Cobro con resultado incierto.** Si la pasarela no responde después de recibir el cobro, no se sabe si cobró. Para que reintentar sea seguro, ms-ventas envía siempre la misma clave de cobro, derivada del id de la compra, y la pasarela devuelve el resultado original si recibe dos veces la misma clave. Por eso la compra queda `PENDIENTE` (no `FALLIDA`): el reintento con la misma `Idempotency-Key` reutiliza la misma compra y la misma clave, y el cliente no paga dos veces.
 
-**Limitación conocida (mejora prevista para la Entrega 2).** Si tras un timeout el cliente no reintenta y la pasarela había cobrado, el cobro queda sin entradas. La solución completa pertenece a la resiliencia de la Entrega 2: estado `PAGO_INCIERTO`, consulta del estado del cobro a la pasarela antes de reintentar, estado `COBRADO` como punto de reanudación tras el cobro, `REEMBOLSO_PENDIENTE` para reembolsos fallidos y un proceso de reconciliación que resuelva las compras sin terminar.
+**Resiliencia de pagos (E2).** En la Entrega 1 quedaba un hueco: si tras un timeout el cliente no reintentaba y la pasarela había cobrado, el cobro quedaba sin entradas. La Entrega 2 lo resuelve (spec `resiliencia-pagos`):
+
+- **Consulta antes de reintentar.** Ante un timeout, ms-ventas consulta el estado del cobro a la pasarela con la misma clave de idempotencia, hasta `ticketya.pagos.max-reintentos` (2) veces. Solo reintenta el cobro si la pasarela confirma que no lo registró, así que nunca hay un segundo débito.
+- **Estado `PAGO_INCIERTO`.** Si la incertidumbre sigue, la compra queda en `PAGO_INCIERTO`, la reserva **no** se libera y la respuesta es `504 PASARELA_TIMEOUT`.
+- **Reconciliación.** `ReconciliacionPagosJob` corre cada 30 s y resuelve cada compra en `PAGO_INCIERTO`. Si el pago resultó aprobado, confirma la reserva y emite las entradas, o reembolsa y marca `FALLIDA` si la reserva venció. Si fue rechazado o no se concretó, libera la reserva. Si sigue incierto, la deja como está. Una compra que falla no frena a las demás.
+
+Los estados `COBRADO` y `REEMBOLSO_PENDIENTE` que se habían previsto no se implementaron: el reembolso se hace en el mismo paso de la compensación.
+
+**Consistencia.** No hay transacciones distribuidas. Cada servicio es consistente dentro de su base, y entre servicios la consistencia es eventual, sostenida por la saga:
+
+- **Pasos idempotentes.** `confirmar` y `liberar` se pueden repetir sin efecto doble, y el cobro usa una clave derivada de la compra.
+- **Estados intermedios explícitos.** `PENDIENTE` y `PAGO_INCIERTO` hacen que un corte en cualquier punto deje un estado recuperable.
+- **Vencimiento de la reserva.** La reserva temporal de 10 minutos acota cuánto tiempo puede quedar un lugar tomado por una compra que no termina.
 
 El detalle gráfico está en `secuencia-compra.md`.
 
@@ -222,3 +267,17 @@ Una preferencia explícita siempre pesa más que la popularidad. Si el cliente n
 - Las devoluciones no restan compras.
 - La popularidad no decae con el tiempo.
 - El catálogo completo se guarda en memoria, con un tope de 2000 eventos.
+
+## 10. Caché del catálogo de eventos (E2)
+
+`ms-eventos` cachea en memoria, con Caffeine, las dos lecturas públicas más frecuentes (spec `catalogo-cache`):
+
+| Caché | Qué guarda | Clave |
+|---|---|---|
+| `catalogoEventos` | resultado de `GET /eventos` (búsqueda) | todos los filtros, el orden, la dirección y la paginación |
+| `detalleEvento` | resultado de `GET /eventos/{id}` | `eventoId`; no se guarda si el evento está en `BORRADOR` |
+
+- **TTL:** 5 minutos (`ticketya.cache.ttl-minutes`, variable `CACHE_TTL_MINUTES`), con un máximo de 1000 entradas por caché. Las respuestas no dependen de quién consulta.
+- **Invalidación:** publicar, suspender, reanudar, cancelar, un cambio efectivo de disponibilidad (agotado o con lugares) y el job que finaliza eventos borran el catálogo completo y el detalle del evento. El borrado se hace después del commit (`TransactionAwareCacheManagerProxy`): si la transacción se revierte no se borra nada, y lo que una lectura guardó mientras la transacción estaba en curso se borra al confirmarla. Editar un borrador no invalida nada, porque no es público.
+- **Qué NO se cachea:** la disponibilidad de asientos y cupos, el inventario de reservas, los sectores con sus capacidades y los mapas y estados de cada asiento. Todo eso cambia con cada reserva y vive en `ms-reservas`, donde se resuelve la anti doble venta: cachearlo mostraría lugares libres que ya no lo están. Por eso la caché nunca participa de la decisión de vender.
+- **Con varias instancias:** la caché es local a cada instancia de `ms-eventos`. Una invalidación borra solo la caché de la instancia que procesó el cambio, y las demás pueden mostrar el dato anterior hasta que venza el TTL (5 minutos como máximo). Se acepta porque son datos de catálogo, no de stock. Una caché distribuida (por ejemplo, Redis) lo resolvería.

@@ -1,19 +1,23 @@
 openapi: 3.0.3
 info:
   title: TicketYa API
-  version: 1.0.0-entrega1
+  version: 2.0.0-entrega2
   description: |
-    Contrato REST de la **Entrega 1 (core)** de TicketYa: eventos y lugares, publicación, reservas temporales,
-    compra con emisión de QR, no doble venta, devoluciones, cancelación de eventos y búsqueda multicriterio.
+    Contrato REST de la **Entrega 2** de TicketYa: eventos y lugares, publicación, reservas temporales,
+    compra con emisión de QR, no doble venta, devoluciones, cancelación de eventos, búsqueda multicriterio,
+    autenticación con JWT, fila virtual, control de acceso por QR, notificaciones, reporte de ventas,
+    preferencias y recomendaciones.
 
     **Entrada única:** todas las rutas públicas se acceden por el API Gateway (`http://localhost:8080/api`).
     El gateway quita el prefijo `/api` y reenvía al microservicio correspondiente:
 
     | Tag | Microservicio | Puerto local |
     |---|---|---|
+    | Auth | ms-auth | 8084 |
     | Lugares, Eventos | ms-eventos | 8081 |
     | Disponibilidad, Reservas | ms-reservas | 8082 |
     | Compras, Entradas, Devoluciones | ms-ventas | 8083 |
+    | Notificaciones (consulta directa, sin ruta en el gateway) | ms-notificaciones | 8085 |
     | Fila | ms-fila | 8086 |
     | Preferencias, Recomendaciones | ms-recomendaciones | 8087 |
 
@@ -21,8 +25,15 @@ info:
     pertenecen a ms-reservas aunque comparten el prefijo `/api/eventos/`: en el gateway deben declararse antes
     que `/api/eventos/**`.
 
-    **Identidad (Entrega 1, sin JWT):** el usuario se identifica con los headers `X-User-Id` y `X-User-Rol`
-    (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `PERSONAL_ACCESO`). En la Entrega 2 se reemplazan por JWT.
+    **Identidad (JWT):** el cliente obtiene un token en `POST /auth/login` o `POST /auth/register` y lo manda en
+    `Authorization: Bearer <token>` (esquema `bearerAuth`; vence a las 24 h). El gateway valida el token y reenvía la
+    identidad a los microservicios en los headers `X-User-Id` y `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`,
+    `PERSONAL_ACCESO`), reemplazando cualquier valor enviado por el cliente. Por eso esos headers figuran como
+    parámetros de cada operación: es lo que recibe el microservicio. Sin token solo se accede a `/auth/**` y a los
+    `GET` de `/eventos/**` y `/lugares/**`; el resto responde `401`.
+
+    **Trazabilidad:** todas las respuestas que pasan por el gateway llevan `X-Correlation-Id`. Si la solicitud no lo
+    trae, el gateway genera un UUID y lo propaga a los microservicios.
 
     **Idempotencia:** `POST /compras` exige el header `Idempotency-Key`.
 
@@ -45,6 +56,8 @@ servers:
   - url: http://localhost:8080/api
     description: API Gateway (entrada única)
 tags:
+  - name: Auth
+    description: Registro e inicio de sesión; emisión del JWT (ms-auth)
   - name: Lugares
     description: Estadios, teatros y salas con sus sectores (ms-eventos)
   - name: Eventos
@@ -71,6 +84,60 @@ tags:
     description: Endpoints entre microservicios. No pasan por el gateway.
 
 paths:
+  # ------------------------------------------------------------------ AUTH
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registrar
+      summary: Registrar un usuario y obtener su token
+      description: |
+        Ruta pública. Crea el usuario con el rol indicado y devuelve un JWT válido por 24 horas.
+        Los errores de ms-auth usan el formato por defecto de Spring (`timestamp`, `status`, `error`, `path`),
+        no el `Error` estándar del resto de los servicios.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example: { email: cliente@example.com, password: miPassword123, rol: CLIENTE }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Email inválido, contraseña vacía o rol ausente
+        '409':
+          description: El email ya está registrado
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Iniciar sesión y obtener un token
+      description: Ruta pública. Devuelve un JWT válido por 24 horas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example: { email: cliente@example.com, password: miPassword123 }
+      responses:
+        '200':
+          description: Credenciales válidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Email o contraseña ausentes
+        '401':
+          description: Credenciales inválidas
+
   # ------------------------------------------------------------------ LUGARES
   /lugares:
     post:
@@ -1441,9 +1508,11 @@ paths:
     get:
       tags: [Internos]
       operationId: internoReporteVentasEvento
-      summary: "[ms-eventos → ms-ventas] Obtener reporte de ventas por evento y sector"
+      summary: "[interno] Obtener reporte de ventas por evento y sector"
       description: |
         Devuelve los totales del evento y el desglose por sector a partir de compras en estado `APROBADA`.
+        Todavía ningún servicio lo invoca ni hay ruta pública en el gateway: se consulta directo en ms-ventas (puerto 8083),
+        sin JWT ni control de rol.
         Si el evento no tiene ventas aprobadas registradas, responde `200` con contadores y recaudación en `0` y `sectores: []`.
       parameters:
         - $ref: '#/components/parameters/EventoIdPath'
@@ -1951,19 +2020,26 @@ paths:
 
 # ====================================================================== COMPONENTES
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token emitido por `POST /auth/login` o `POST /auth/register`. Lo valida el gateway.
+
   parameters:
     XUserId:
       name: X-User-Id
       in: header
       required: true
-      description: Id del usuario (Entrega 1, sin JWT)
+      description: Id del usuario. Lo pone el gateway a partir del subject del JWT; el cliente no lo envía
       schema: { type: string }
       example: '101'
     XUserRol:
       name: X-User-Rol
       in: header
       required: true
-      description: Rol del usuario (Entrega 1, sin JWT)
+      description: Rol del usuario. Lo pone el gateway a partir del claim `rol` del JWT; el cliente no lo envía
       schema:
         type: string
         enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
@@ -2564,6 +2640,30 @@ components:
       properties:
         activa: { type: boolean, example: true }
         habilitado: { type: boolean, example: false }
+
+    # ---- auth
+    Rol:
+      type: string
+      enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
+    RegisterRequest:
+      type: object
+      required: [email, password, rol]
+      properties:
+        email: { type: string, format: email, example: cliente@example.com }
+        password: { type: string, minLength: 1, example: miPassword123 }
+        rol: { $ref: '#/components/schemas/Rol' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: cliente@example.com }
+        password: { type: string, minLength: 1, example: miPassword123 }
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, example: eyJhbGciOiJIUzI1NiJ9... }
+        userId: { type: integer, format: int64, example: 1 }
+        rol: { $ref: '#/components/schemas/Rol' }
 
     # ---- preferencias y recomendaciones
     PreferenciasRequest:

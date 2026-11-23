@@ -2,8 +2,13 @@ package com.ticketya.ventas.service;
 
 import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
+import com.ticketya.ventas.client.NotificacionesClient;
+import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 import com.ticketya.ventas.dto.CompraRequest;
 import com.ticketya.ventas.dto.MedioPagoRequest;
 import com.ticketya.ventas.exception.BadGatewayException;
@@ -45,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class CompraServiceTest {
 
@@ -57,6 +63,8 @@ class CompraServiceTest {
     private ReservasClient reservasClient;
     private EventosClient eventosClient;
     private PasarelaPagoService pasarelaPagoService;
+    private NotificacionesClient notificacionesClient;
+    private TransactionTemplate tx;
     private CompraService compraService;
 
     @BeforeEach
@@ -66,6 +74,7 @@ class CompraServiceTest {
         reservasClient = mock(ReservasClient.class);
         eventosClient = mock(EventosClient.class);
         pasarelaPagoService = spy(new PasarelaPagoService());
+        notificacionesClient = mock(NotificacionesClient.class);
 
         when(compraRepository.saveAndFlush(any(Compra.class))).thenAnswer(inv -> {
             Compra c = inv.getArgument(0);
@@ -90,7 +99,7 @@ class CompraServiceTest {
                     .findFirst();
         });
 
-        TransactionTemplate tx = new TransactionTemplate() {
+        tx = new TransactionTemplate() {
             @Override
             public <T> T execute(TransactionCallback<T> action) {
                 TransactionStatus status = new SimpleTransactionStatus();
@@ -98,7 +107,8 @@ class CompraServiceTest {
             }
         };
 
-        compraService = new CompraService(compraRepository, reservasClient, eventosClient, pasarelaPagoService, tx);
+        compraService = new CompraService(compraRepository, reservasClient, eventosClient,
+                pasarelaPagoService, notificacionesClient, tx);
     }
 
     private static ReservaRemota reservaVigente() {
@@ -133,6 +143,16 @@ class CompraServiceTest {
         assertNotEquals(resultado.compra().entradas().get(0).codigoQr(),
                 resultado.compra().entradas().get(1).codigoQr());
         verify(reservasClient).confirmar(RESERVA_ID);
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                isNull(),
+                argThat(datos -> resultado.compra().compraId().toString().equals(datos.get("compraId"))
+                        && Long.valueOf(42L).equals(datos.get("eventoId"))
+                        && new BigDecimal("90000.00").equals(datos.get("total"))
+                        && ((List<?>) datos.get("entradas")).size() == 2),
+                eq("compra-confirmada-" + resultado.compra().compraId())
+        );
     }
 
     @Test
@@ -148,6 +168,7 @@ class CompraServiceTest {
         Compra guardada = db.values().iterator().next();
         assertEquals(EstadoCompra.RECHAZADA, guardada.getEstado());
         assertEquals(EstadoPago.RECHAZADO, guardada.getPago().getEstado());
+        verifyNoInteractions(notificacionesClient);
     }
 
     @Test
@@ -193,6 +214,7 @@ class CompraServiceTest {
         assertNull(incierta.getPago().getTransaccionPasarela());
         assertEquals("4242", incierta.getPago().getUltimos4());
         verify(reservasClient, never()).liberar(any());
+        verifyNoInteractions(notificacionesClient);
 
         ResultadoCompra reintento = compraService.crear("cli-100", "k-5", requestConToken("tok_timeout"));
 
@@ -203,6 +225,13 @@ class CompraServiceTest {
         verify(pasarelaPagoService, times(1)).cobrar(
                 eq(CompraService.claveCobroDe(incierta.getId())), eq("tok_timeout"), eq(new BigDecimal("90000.00")));
         verify(pasarelaPagoService, times(3)).consultarEstado(CompraService.claveCobroDe(incierta.getId()));
+        verify(notificacionesClient, times(1)).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                isNull(),
+                anyMap(),
+                eq("compra-confirmada-" + incierta.getId())
+        );
     }
 
     @Test
@@ -249,6 +278,16 @@ class CompraServiceTest {
         verify(pasarelaPagoService, times(1)).cobrar(anyString(), eq("tok_ok"), any(BigDecimal.class));
         verify(pasarelaPagoService, times(1)).consultarEstado(CompraService.claveCobroDe(resultado.compra().compraId()));
         verify(reservasClient).confirmar(RESERVA_ID);
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                isNull(),
+                argThat(datos -> resultado.compra().compraId().toString().equals(datos.get("compraId"))
+                        && Long.valueOf(42L).equals(datos.get("eventoId"))
+                        && new BigDecimal("90000.00").equals(datos.get("total"))
+                        && ((List<?>) datos.get("entradas")).size() == 2),
+                eq("compra-confirmada-" + resultado.compra().compraId())
+        );
     }
 
     @Test
@@ -271,6 +310,16 @@ class CompraServiceTest {
         verify(pasarelaPagoService, times(1)).consultarEstado(clave);
         verify(pasarelaPagoService, times(2)).cobrar(eq(clave), eq("tok_ok"), eq(new BigDecimal("90000.00")));
         verify(reservasClient).confirmar(RESERVA_ID);
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                isNull(),
+                argThat(datos -> resultado.compra().compraId().toString().equals(datos.get("compraId"))
+                        && Long.valueOf(42L).equals(datos.get("eventoId"))
+                        && new BigDecimal("90000.00").equals(datos.get("total"))
+                        && ((List<?>) datos.get("entradas")).size() == 2),
+                eq("compra-confirmada-" + resultado.compra().compraId())
+        );
     }
 
     @Test
@@ -399,7 +448,7 @@ class CompraServiceTest {
         when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
         when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
 
-        ResultadoCompra primera = compraService.crear("cli-100", "k-idem-1", requestConToken("tok_ok"));
+        ResultadoCompra primera = compraService.crear("cli-100", "k-idem-1", requestConToken("tok_ok"), "cliente@example.com");
         ResultadoCompra segunda = compraService.crear("cli-100", "k-idem-1", requestConToken("tok_ok"));
 
         assertFalse(primera.repeticion());
@@ -407,6 +456,37 @@ class CompraServiceTest {
         assertEquals(primera.compra(), segunda.compra());
         verify(pasarelaPagoService, times(1)).cobrar(anyString(), anyString(), any());
         verify(reservasClient, times(1)).confirmar(RESERVA_ID);
+        verify(notificacionesClient, times(1)).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                eq("cliente@example.com"),
+                anyMap(),
+                eq("compra-confirmada-" + primera.compra().compraId())
+        );
+    }
+
+    @Test
+    void falloDeMsNotificacionesNoAfectaLaCompraAprobada() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://ms-notificaciones");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://ms-notificaciones/internal/notificaciones"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        CompraService servicioConClienteReal = new CompraService(
+                compraRepository, reservasClient, eventosClient, pasarelaPagoService,
+                new NotificacionesClient(builder.build(), "ticketya.local"), tx);
+
+        when(reservasClient.validar(RESERVA_ID, "cli-100")).thenReturn(reservaVigente());
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshotEvento());
+
+        ResultadoCompra resultado = servicioConClienteReal.crear(
+                "cli-100", "k-notif-503", requestConToken("tok_ok"), "cliente@example.com");
+
+        assertFalse(resultado.repeticion());
+        assertEquals(EstadoCompra.APROBADA, resultado.compra().estado());
+        assertEquals(2, resultado.compra().entradas().size());
+        server.verify();
     }
 
     @Test

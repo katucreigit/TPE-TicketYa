@@ -2,8 +2,13 @@ package com.ticketya.ventas.service;
 
 import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
+import com.ticketya.ventas.client.NotificacionesClient;
+import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 import com.ticketya.ventas.exception.BadGatewayException;
 import com.ticketya.ventas.exception.GatewayTimeoutException;
 import com.ticketya.ventas.exception.GoneException;
@@ -32,6 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 class ReconciliacionPagosJobTest {
 
@@ -46,6 +52,8 @@ class ReconciliacionPagosJobTest {
     private ReservasClient reservasClient;
     private EventosClient eventosClient;
     private PasarelaPagoService pasarelaPagoService;
+    private NotificacionesClient notificacionesClient;
+    private TransactionTemplate tx;
     private CompraService compraService;
     private ReconciliacionPagosJob job;
 
@@ -56,6 +64,7 @@ class ReconciliacionPagosJobTest {
         reservasClient = mock(ReservasClient.class);
         eventosClient = mock(EventosClient.class);
         pasarelaPagoService = spy(new PasarelaPagoService());
+        notificacionesClient = mock(NotificacionesClient.class);
 
         when(compraRepository.saveAndFlush(any(Compra.class))).thenAnswer(inv -> {
             Compra c = inv.getArgument(0);
@@ -76,7 +85,7 @@ class ReconciliacionPagosJobTest {
                         .filter(c -> c.getEstado() == EstadoCompra.PAGO_INCIERTO)
                         .toList());
 
-        TransactionTemplate tx = new TransactionTemplate() {
+        tx = new TransactionTemplate() {
             @Override
             public <T> T execute(TransactionCallback<T> action) {
                 TransactionStatus status = new SimpleTransactionStatus();
@@ -84,7 +93,8 @@ class ReconciliacionPagosJobTest {
             }
         };
 
-        compraService = new CompraService(compraRepository, reservasClient, eventosClient, pasarelaPagoService, tx);
+        compraService = new CompraService(compraRepository, reservasClient, eventosClient,
+                pasarelaPagoService, notificacionesClient, tx);
         job = new ReconciliacionPagosJob(compraRepository, compraService, pasarelaPagoService, reservasClient, eventosClient);
     }
 
@@ -141,6 +151,13 @@ class ReconciliacionPagosJobTest {
         assertNotEquals(compra.getEntradas().get(0).getCodigoQr(), compra.getEntradas().get(1).getCodigoQr());
         verify(reservasClient).confirmar(RESERVA_ID_1);
         verify(pasarelaPagoService, never()).cobrar(anyString(), anyString(), any());
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                isNull(),
+                anyMap(),
+                eq("compra-confirmada-" + compraId)
+        );
     }
 
     @Test
@@ -176,6 +193,7 @@ class ReconciliacionPagosJobTest {
         assertTrue(compra.getEntradas().isEmpty());
         verify(pasarelaPagoService).reembolsar(anyString());
         verify(reservasClient, never()).confirmar(any());
+        verifyNoInteractions(notificacionesClient);
     }
 
     @Test
@@ -209,6 +227,7 @@ class ReconciliacionPagosJobTest {
         assertTrue(compra.getEntradas().isEmpty());
         verify(reservasClient).liberar(RESERVA_ID_1);
         verify(pasarelaPagoService, never()).reembolsar(anyString());
+        verifyNoInteractions(notificacionesClient);
     }
 
     @Test
@@ -262,5 +281,36 @@ class ReconciliacionPagosJobTest {
 
         assertEquals(EstadoCompra.PAGO_INCIERTO, compra502.getEstado());
         assertEquals(EstadoPago.INCIERTO, compra502.getPago().getEstado());
+    }
+
+    @Test
+    void reconciliacionPreservaClienteEmailYNoSeInterrumpeSiNotificacionesFalla() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://ms-notificaciones");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://ms-notificaciones/internal/notificaciones"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath(
+                        "$.destinatario.email").value("real@example.com"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        CompraService servicioConClienteReal = new CompraService(
+                compraRepository, reservasClient, eventosClient, pasarelaPagoService,
+                new NotificacionesClient(builder.build(), "ticketya.local"), tx);
+        ReconciliacionPagosJob jobConClienteReal = new ReconciliacionPagosJob(
+                compraRepository, servicioConClienteReal, pasarelaPagoService, reservasClient, eventosClient);
+
+        UUID compraId = UUID.randomUUID();
+        Compra compra = crearCompraIncierta(compraId, RESERVA_ID_1);
+        compra.setClienteEmail("real@example.com");
+        pasarelaPagoService.resolverIncertidumbre(CompraService.claveCobroDe(compraId), EstadoPago.APROBADO);
+
+        when(reservasClient.obtener(RESERVA_ID_1, "cli-100")).thenReturn(reserva(RESERVA_ID_1, "PENDIENTE"));
+        when(eventosClient.obtenerSnapshotParaCompra(42L, 11L)).thenReturn(snapshot());
+
+        jobConClienteReal.reconciliarPagosInciertos();
+
+        assertEquals(EstadoCompra.APROBADA, compra.getEstado());
+        assertEquals(2, compra.getEntradas().size());
+        server.verify();
     }
 }

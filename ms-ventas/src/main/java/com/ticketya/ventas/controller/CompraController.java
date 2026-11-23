@@ -36,10 +36,12 @@ public class CompraController {
             @RequestHeader(value = Identidad.HEADER_ID, required = false) String userId,
             @RequestHeader(value = Identidad.HEADER_ROL, required = false) String rol,
             @RequestHeader(value = Identidad.HEADER_IDEMPOTENCY, required = false) String idempotencyKey,
+            @RequestHeader(value = Identidad.HEADER_EMAIL, required = false) String userEmail,
             @Valid @RequestBody CompraRequest request) {
         String key = Identidad.idempotencyKey(idempotencyKey);
         String clienteId = Identidad.cliente(userId, rol);
-        ResultadoCompra resultado = compraService.crear(clienteId, key, request);
+        String email = Identidad.emailOpcional(userEmail);
+        ResultadoCompra resultado = compraService.crear(clienteId, key, request, email);
         HttpStatus status = resultado.repeticion() ? HttpStatus.OK : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(resultado.compra());
     }

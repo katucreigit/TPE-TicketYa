@@ -775,6 +775,7 @@ paths:
         - $ref: '#/components/parameters/XUserId'
         - $ref: '#/components/parameters/XUserRol'
         - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/XUserEmail'
       requestBody:
         required: true
         content:
@@ -1493,6 +1494,13 @@ components:
         type: string
         enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
       example: CLIENTE
+    XUserEmail:
+      name: X-User-Email
+      in: header
+      required: false
+      description: Correo electrónico del cliente para notificaciones (opcional; si falta o es inválido se usa un respaldo determinista)
+      schema: { type: string, format: email }
+      example: cliente@example.com
     IdempotencyKey:
       name: Idempotency-Key
       in: header

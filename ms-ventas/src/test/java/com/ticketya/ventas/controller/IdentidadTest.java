@@ -51,5 +51,14 @@ class IdentidadTest {
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex.getCode()).isEqualTo("IDEMPOTENCY_KEY_REQUERIDA");
     }
+
+    @Test
+    void emailOpcionalNormalizaValidosYDevuelveNullSiFaltaOEsInvalido() {
+        assertThat(Identidad.emailOpcional("  cliente@example.com  ")).isEqualTo("cliente@example.com");
+        assertThat(Identidad.emailOpcional(null)).isNull();
+        assertThat(Identidad.emailOpcional("   ")).isNull();
+        assertThat(Identidad.emailOpcional("no-es-un-email")).isNull();
+        assertThat(Identidad.emailOpcional("a..b@example.com")).isNull();
+    }
 }
 

@@ -5,6 +5,7 @@ import com.ticketya.ventas.exception.ForbiddenException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Identidad de la Entrega 1 (sin JWT): headers X-User-Id y X-User-Rol que reenvia el gateway,
@@ -14,9 +15,11 @@ final class Identidad {
 
     static final String HEADER_ID = "X-User-Id";
     static final String HEADER_ROL = "X-User-Rol";
+    static final String HEADER_EMAIL = "X-User-Email";
     static final String HEADER_IDEMPOTENCY = "Idempotency-Key";
     private static final String CLIENTE = "CLIENTE";
     private static final String ADMIN = "ADMIN";
+    private static final Pattern EMAIL_BASICO = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
 
     record Solicitante(String userId, boolean esAdmin) {
     }
@@ -82,5 +85,17 @@ final class Identidad {
         if (page < 0 || size < 1 || size > 100) {
             throw new BadRequestException("VALIDACION", "Parametros de paginacion invalidos");
         }
+    }
+
+    /** Normaliza el header opcional X-User-Email; devuelve {@code null} si falta o no tiene formato valido. */
+    static String emailOpcional(String email) {
+        if (email == null) {
+            return null;
+        }
+        String limpio = email.trim();
+        if (limpio.isEmpty() || limpio.length() > 254 || limpio.contains("..")) {
+            return null;
+        }
+        return EMAIL_BASICO.matcher(limpio).matches() ? limpio : null;
     }
 }

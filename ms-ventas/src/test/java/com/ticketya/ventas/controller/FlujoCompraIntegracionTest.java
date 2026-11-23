@@ -3,6 +3,8 @@ package com.ticketya.ventas.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
+import com.ticketya.ventas.client.NotificacionesClient;
+import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
 import com.ticketya.ventas.exception.ForbiddenException;
@@ -97,6 +99,8 @@ class FlujoCompraIntegracionTest {
     private ReservasClient reservasClient;
     @MockitoBean
     private EventosClient eventosClient;
+    @MockitoBean
+    private NotificacionesClient notificacionesClient;
 
     private final Map<UUID, Compra> comprasDb = new ConcurrentHashMap<>();
     private final Map<UUID, Entrada> entradasDb = new ConcurrentHashMap<>();
@@ -177,6 +181,7 @@ class FlujoCompraIntegracionTest {
                         .header("X-User-Id", "cli-100")
                         .header("X-User-Rol", "CLIENTE")
                         .header("Idempotency-Key", "k-flujo-1")
+                        .header("X-User-Email", "comprador@example.com")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isCreated())
@@ -191,7 +196,7 @@ class FlujoCompraIntegracionTest {
         String compraId = objectMapper.readTree(jsonResp).get("compraId").asText();
         String entradaId = objectMapper.readTree(jsonResp).get("entradas").get(0).get("entradaId").asText();
 
-        // Repeticion idempotente responde 200 con la misma compra sin volver a confirmar
+        // Repeticion idempotente responde 200 con la misma compra sin volver a confirmar ni notificar
         mvc.perform(post("/compras")
                         .header("X-User-Id", "cli-100")
                         .header("X-User-Rol", "CLIENTE")
@@ -201,6 +206,13 @@ class FlujoCompraIntegracionTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.compraId").value(compraId));
         verify(reservasClient, times(1)).confirmar(RESERVA_ID);
+        verify(notificacionesClient, times(1)).enviar(
+                eq(TipoNotificacion.COMPRA_CONFIRMADA),
+                eq("cli-100"),
+                eq("comprador@example.com"),
+                anyMap(),
+                eq("compra-confirmada-" + compraId)
+        );
 
         // Consultas del cliente dueno
         mvc.perform(get("/compras")

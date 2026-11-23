@@ -4,6 +4,7 @@ import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
+import com.ticketya.ventas.dto.CompraResponse;
 import com.ticketya.ventas.exception.BadGatewayException;
 import com.ticketya.ventas.exception.ConflictException;
 import com.ticketya.ventas.exception.GatewayTimeoutException;
@@ -124,7 +125,10 @@ public class ReconciliacionPagosJob {
             }
         }
 
-        compraService.guardarAprobadaConEntradas(compra.getId(), null, total, transaccionId, reserva, snapshot);
+        CompraResponse aprobada = compraService.guardarAprobadaConEntradas(
+                compra.getId(), null, total, transaccionId, reserva, snapshot);
+        compraService.notificarCompraConfirmada(
+                compra.getClienteId(), compra.getClienteEmail(), snapshot.eventoId(), aprobada);
     }
 
     private void reconciliarRechazada(Compra compra) {

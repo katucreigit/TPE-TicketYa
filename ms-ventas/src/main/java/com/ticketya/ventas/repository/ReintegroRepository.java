@@ -31,6 +31,17 @@ public interface ReintegroRepository extends JpaRepository<Reintegro, UUID> {
                                     @Param("tipo") TipoReintegro tipo,
                                     @Param("estado") EstadoReintegro estado);
 
+    /** Todos los reintegros de un tipo para un evento (cualquier estado), con entrada y compra. */
+    @Query("""
+            SELECT r FROM Reintegro r
+            JOIN FETCH r.entrada e
+            JOIN FETCH e.compra c
+            WHERE e.eventoId = :eventoId AND r.tipo = :tipo
+            ORDER BY c.clienteId, c.id, r.id
+            """)
+    List<Reintegro> buscarTodosPorEvento(@Param("eventoId") Long eventoId,
+                                         @Param("tipo") TipoReintegro tipo);
+
     long countByEntradaEventoIdAndTipoAndEstado(Long eventoId, TipoReintegro tipo, EstadoReintegro estado);
 
     /** SELECT ... FOR UPDATE: dos cancelaciones simultaneas no completan dos veces el mismo reintegro. */

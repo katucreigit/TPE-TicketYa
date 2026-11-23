@@ -2,10 +2,13 @@ package com.ticketya.ventas.service;
 
 import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
+import com.ticketya.ventas.client.NotificacionesClient;
+import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
 import com.ticketya.ventas.dto.CompraRequest;
 import com.ticketya.ventas.dto.CompraResponse;
+import com.ticketya.ventas.dto.EntradaResponse;
 import com.ticketya.ventas.dto.MedioPagoRequest;
 import com.ticketya.ventas.dto.PageCompraResponse;
 import com.ticketya.ventas.exception.BusinessRuleException;
@@ -39,7 +42,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,6 +72,7 @@ public class CompraService {
     private final ReservasClient reservasClient;
     private final EventosClient eventosClient;
     private final PasarelaPagoService pasarelaPagoService;
+    private final NotificacionesClient notificacionesClient;
     private final TransactionTemplate transaccion;
     private final int maxReintentos;
     private final Set<String> clavesEnVuelo = ConcurrentHashMap.newKeySet();
@@ -76,8 +82,10 @@ public class CompraService {
                          ReservasClient reservasClient,
                          EventosClient eventosClient,
                          PasarelaPagoService pasarelaPagoService,
+                         NotificacionesClient notificacionesClient,
                          TransactionTemplate transaccion) {
-        this(compraRepository, reservasClient, eventosClient, pasarelaPagoService, transaccion, DEFAULT_MAX_REINTENTOS);
+        this(compraRepository, reservasClient, eventosClient, pasarelaPagoService,
+                notificacionesClient, transaccion, DEFAULT_MAX_REINTENTOS);
     }
 
     @Autowired
@@ -85,17 +93,24 @@ public class CompraService {
                          ReservasClient reservasClient,
                          EventosClient eventosClient,
                          PasarelaPagoService pasarelaPagoService,
+                         NotificacionesClient notificacionesClient,
                          TransactionTemplate transaccion,
                          @Value("${ticketya.pagos.max-reintentos:2}") int maxReintentos) {
         this.compraRepository = compraRepository;
         this.reservasClient = reservasClient;
         this.eventosClient = eventosClient;
         this.pasarelaPagoService = pasarelaPagoService;
+        this.notificacionesClient = notificacionesClient;
         this.transaccion = transaccion;
         this.maxReintentos = Math.max(0, maxReintentos);
     }
 
     public ResultadoCompra crear(String clienteId, String idempotencyKey, CompraRequest request) {
+        return crear(clienteId, idempotencyKey, request, null);
+    }
+
+    public ResultadoCompra crear(String clienteId, String idempotencyKey,
+                                 CompraRequest request, String clienteEmail) {
         String requestHash = calcularHash(request);
         String claveConcurrencia = clienteId + ":" + idempotencyKey;
         if (!clavesEnVuelo.add(claveConcurrencia)) {
@@ -103,7 +118,7 @@ public class CompraService {
                     "Ya hay una solicitud en curso para la misma Idempotency-Key");
         }
         try {
-            return ejecutarSaga(clienteId, idempotencyKey, request, requestHash);
+            return ejecutarSaga(clienteId, idempotencyKey, request, requestHash, clienteEmail);
         } finally {
             clavesEnVuelo.remove(claveConcurrencia);
         }
@@ -128,7 +143,7 @@ public class CompraService {
     }
 
     private ResultadoCompra ejecutarSaga(String clienteId, String idempotencyKey,
-                                         CompraRequest request, String requestHash) {
+                                         CompraRequest request, String requestHash, String clienteEmail) {
         Compra existente = compraRepository.findByClienteIdAndIdempotencyKey(clienteId, idempotencyKey).orElse(null);
         if (existente != null) {
             if (!existente.getRequestHash().equals(requestHash)) {
@@ -154,7 +169,7 @@ public class CompraService {
 
         Compra compra = existente != null
                 ? existente
-                : registrarPendiente(clienteId, idempotencyKey, request.reservaId(),
+                : registrarPendiente(clienteId, clienteEmail, idempotencyKey, request.reservaId(),
                         reserva.eventoId(), requestHash, BigDecimal.ZERO);
 
         SnapshotCompra snapshot = eventosClient.obtenerSnapshotParaCompra(reserva.eventoId(), reserva.sectorId());
@@ -162,7 +177,8 @@ public class CompraService {
         compra = actualizarPendiente(compra.getId(), reserva.eventoId(), total);
 
         ResultadoCobro cobro = cobrarResiliente(compra.getId(), request.medioPago(), total);
-        return completarTrasCobro(compra.getId(), request.medioPago(), total, cobro, reserva, snapshot);
+        return completarTrasCobro(compra.getId(), compra.getClienteId(), compra.getClienteEmail(),
+                request.medioPago(), total, cobro, reserva, snapshot);
     }
 
     private ResultadoCompra reintentarPagoIncierto(Compra existente, String clienteId, CompraRequest request) {
@@ -202,7 +218,8 @@ public class CompraService {
                 BigDecimal total = snapshot.precioUnitario().multiply(BigDecimal.valueOf(reserva.cantidad()));
                 actualizarPendiente(compraId, reserva.eventoId(), total);
                 ResultadoCobro cobro = cobrarResiliente(compraId, request.medioPago(), total);
-                return completarTrasCobro(compraId, request.medioPago(), total, cobro, reserva, snapshot);
+                return completarTrasCobro(compraId, actual.getClienteId(), actual.getClienteEmail(),
+                        request.medioPago(), total, cobro, reserva, snapshot);
             }
 
             throw new GatewayTimeoutException(MSG_PASARELA_TIMEOUT);
@@ -251,6 +268,7 @@ public class CompraService {
 
         CompraResponse aprobada = guardarAprobadaConEntradas(
                 compra.getId(), request.medioPago(), total, transaccionId, reserva, snapshot);
+        notificarCompraConfirmada(compra.getClienteId(), compra.getClienteEmail(), snapshot.eventoId(), aprobada);
         return new ResultadoCompra(aprobada, false);
     }
 
@@ -294,6 +312,8 @@ public class CompraService {
     }
 
     private ResultadoCompra completarTrasCobro(UUID compraId,
+                                               String clienteId,
+                                               String clienteEmail,
                                                MedioPagoRequest medioPago,
                                                BigDecimal total,
                                                ResultadoCobro cobro,
@@ -315,7 +335,41 @@ public class CompraService {
 
         CompraResponse aprobada = guardarAprobadaConEntradas(
                 compraId, medioPago, total, cobro.transaccionId(), reserva, snapshot);
+        notificarCompraConfirmada(clienteId, clienteEmail, snapshot.eventoId(), aprobada);
         return new ResultadoCompra(aprobada, false);
+    }
+
+    void notificarCompraConfirmada(String clienteId, String clienteEmail, Long eventoId, CompraResponse aprobada) {
+        List<Map<String, Object>> entradas = aprobada.entradas().stream()
+                .map(CompraService::entradaResumen)
+                .toList();
+        Map<String, Object> datos = new LinkedHashMap<>();
+        datos.put("compraId", aprobada.compraId().toString());
+        datos.put("eventoId", eventoId);
+        datos.put("total", aprobada.total());
+        datos.put("entradas", entradas);
+
+        notificacionesClient.enviar(
+                TipoNotificacion.COMPRA_CONFIRMADA,
+                clienteId,
+                clienteEmail,
+                datos,
+                "compra-confirmada-" + aprobada.compraId()
+        );
+    }
+
+    private static Map<String, Object> entradaResumen(EntradaResponse entrada) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("entradaId", entrada.entradaId().toString());
+        item.put("sectorId", entrada.sectorId());
+        item.put("precioUnitario", entrada.precioUnitario());
+        if (entrada.fila() != null) {
+            item.put("fila", entrada.fila());
+        }
+        if (entrada.numero() != null) {
+            item.put("numero", entrada.numero());
+        }
+        return item;
     }
 
     private ResultadoConsultaCobro consultarEstadoSeguro(String claveCobro) {
@@ -339,12 +393,13 @@ public class CompraService {
         return "cobro-" + compraId;
     }
 
-    private Compra registrarPendiente(String clienteId, String idempotencyKey, UUID reservaId,
+    private Compra registrarPendiente(String clienteId, String clienteEmail, String idempotencyKey, UUID reservaId,
                                       Long eventoId, String requestHash, BigDecimal total) {
         try {
             return transaccion.execute(status -> {
                 Compra nueva = new Compra();
                 nueva.setClienteId(clienteId);
+                nueva.setClienteEmail(clienteEmail);
                 nueva.setIdempotencyKey(idempotencyKey);
                 nueva.setReservaId(reservaId);
                 nueva.setEventoId(eventoId);

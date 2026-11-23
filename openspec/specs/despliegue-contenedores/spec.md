@@ -48,7 +48,7 @@ Cada microservicio SHALL arrancar solo cuando su base de datos informe estar sal
 - **THEN** el contenedor del gateway se inicia después de que se hayan iniciado los contenedores de `ms-eventos`, `ms-reservas`, `ms-ventas` y `ms-auth`
 
 ### Requirement: Comunicación por nombre de servicio
-Dentro del entorno de Compose, los servicios SHALL comunicarse entre sí y con sus bases usando el nombre de servicio de Compose, configurado mediante `DB_URL`, `DB_USER`, `DB_PASSWORD`, `MONGO_URI`, `MS_EVENTOS_URL`, `MS_RESERVAS_URL`, `MS_VENTAS_URL` y `MS_AUTH_URL`.
+Dentro del entorno de Compose, los servicios SHALL comunicarse entre sí y con sus bases usando el nombre de servicio de Compose, configurado mediante `DB_URL`, `DB_USER`, `DB_PASSWORD`, `MONGO_URI`, `MS_EVENTOS_URL`, `MS_RESERVAS_URL`, `MS_VENTAS_URL`, `MS_AUTH_URL` y `MS_NOTIFICACIONES_URL`.
 
 #### Scenario: Gateway enruta a los microservicios en contenedores
 - **WHEN** un cliente envía una solicitud a `http://localhost:8080/api/eventos` con el sistema levantado en Compose
@@ -61,6 +61,10 @@ Dentro del entorno de Compose, los servicios SHALL comunicarse entre sí y con s
 #### Scenario: Llamada interna entre microservicios
 - **WHEN** un microservicio en Compose invoca un endpoint interno de otro microservicio
 - **THEN** la llamada se dirige al nombre de servicio del destino y no a `localhost`
+
+#### Scenario: ms-ventas se comunica con ms-notificaciones en Compose
+- **WHEN** `ms-ventas` arranca en Compose y emite una notificación hacia `ms-notificaciones`
+- **THEN** la solicitud se dirige al servicio `ms-notificaciones` en el puerto `8085` mediante `MS_NOTIFICACIONES_URL` y no a `localhost`
 
 #### Scenario: Microservicio se conecta a su propia base
 - **WHEN** un microservicio arranca en Compose

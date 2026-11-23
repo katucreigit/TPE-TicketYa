@@ -69,11 +69,23 @@ class CancelacionEventoServiceTest {
         pasarela = spy(new PasarelaPagoService());
         notificacionesClient = mock(NotificacionesClient.class);
 
-        when(entradaRepository.bloquearPorEventoYEstado(anyLong(), any(EstadoEntrada.class))).thenAnswer(inv ->
+        when(entradaRepository.findByEventoIdAndEstadoOrderById(anyLong(), any(EstadoEntrada.class))).thenAnswer(inv ->
                 entradas.stream()
                         .filter(e -> e.getEventoId().equals(inv.getArgument(0)) && e.getEstado() == inv.getArgument(1))
                         .sorted(Comparator.comparing(Entrada::getId))
                         .toList());
+        when(entradaRepository.findById(any(UUID.class))).thenAnswer(inv ->
+                entradas.stream().filter(e -> e.getId().equals(inv.getArgument(0))).findFirst());
+        when(entradaRepository.transicionarDesdeEmitida(any(UUID.class), any(EstadoEntrada.class))).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            EstadoEntrada nuevo = inv.getArgument(1);
+            Entrada e = entradas.stream().filter(x -> x.getId().equals(id)).findFirst().orElse(null);
+            if (e != null && e.getEstado() == EstadoEntrada.EMITIDA) {
+                e.setEstado(nuevo);
+                return 1;
+            }
+            return 0;
+        });
         when(entradaRepository.saveAndFlush(any(Entrada.class))).thenAnswer(inv -> inv.getArgument(0));
 
         when(reintegroRepository.saveAndFlush(any(Reintegro.class))).thenAnswer(inv -> {
@@ -218,6 +230,25 @@ class CancelacionEventoServiceTest {
         assertEquals(EstadoEntrada.REINTEGRADA, yaDevuelta.getEstado());
         assertEquals(EstadoEntrada.EMITIDA, deOtroEvento.getEstado());
         assertEquals(1, reintegros.size());
+    }
+
+    @Test
+    void omiteEntradaQueDejoDeEstarEmitidaAntesDelUpdateCondicional() {
+        Entrada ganadora = entrada(EVENTO_ID, EstadoEntrada.EMITIDA);
+        Entrada usadaEnSimultaneo = entrada(EVENTO_ID, EstadoEntrada.EMITIDA);
+        doAnswer(inv -> {
+            usadaEnSimultaneo.setEstado(EstadoEntrada.USADA);
+            return 0;
+        }).when(entradaRepository).transicionarDesdeEmitida(
+                usadaEnSimultaneo.getId(), EstadoEntrada.REINTEGRO_PENDIENTE);
+
+        CancelacionEventoResponse respuesta = servicio.procesar(EVENTO_ID);
+
+        assertEquals(new CancelacionEventoResponse(EVENTO_ID, 1, 1, 0), respuesta);
+        assertEquals(EstadoEntrada.REINTEGRADA, ganadora.getEstado());
+        assertEquals(EstadoEntrada.USADA, usadaEnSimultaneo.getEstado());
+        assertEquals(1, reintegros.size());
+        assertTrue(reintegros.values().stream().noneMatch(r -> r.getEntrada().getId().equals(usadaEnSimultaneo.getId())));
     }
 
     @Test

@@ -123,8 +123,8 @@ public class DevolucionService {
     // ------------------------------------------------------------------ solicitar
 
     /**
-     * Crea la devolucion SOLICITADA y pasa la entrada a DEVOLUCION_SOLICITADA. La entrada se bloquea
-     * (FOR UPDATE) para que dos solicitudes simultaneas no generen dos devoluciones en curso.
+     * Crea la devolucion SOLICITADA y pasa la entrada a DEVOLUCION_SOLICITADA mediante UPDATE condicional por
+     * estado EMITIDA para garantizar exclusion mutua frente a ingreso, cancelacion u otra devolucion.
      *
      * @throws NotFoundException      (404) la entrada no existe
      * @throws ForbiddenException     (403) la entrada es de otro cliente
@@ -133,29 +133,38 @@ public class DevolucionService {
      */
     public DevolucionResponse solicitar(String clienteId, DevolucionRequest request) {
         return transaccion.execute(status -> {
-            Entrada entrada = entradaRepository.bloquearConCompra(request.entradaId())
+            Entrada entrada = entradaRepository.findWithCompraById(request.entradaId())
                     .orElseThrow(() -> new NotFoundException("La entrada " + request.entradaId() + " no existe"));
+            UUID compraId = entrada.getCompra().getId();
             if (!entrada.getCompra().getClienteId().equals(clienteId)) {
                 throw new ForbiddenException();
             }
             validarDevolvible(entrada);
             validarPlazo(entrada);
 
+            int actualizadas = entradaRepository.transicionarDesdeEmitida(
+                    entrada.getId(), EstadoEntrada.DEVOLUCION_SOLICITADA);
+            if (actualizadas == 0) {
+                Entrada actualizada = entradaRepository.findById(entrada.getId())
+                        .orElseThrow(() -> new NotFoundException("La entrada " + request.entradaId() + " no existe"));
+                validarDevolvible(actualizada);
+                throw new ConflictException("ENTRADA_NO_DEVOLVIBLE", "La entrada ya no esta en estado EMITIDA");
+            }
+
+            Entrada entradaActualizada = entradaRepository.findById(entrada.getId()).orElseThrow();
             Devolucion devolucion = new Devolucion();
-            devolucion.setEntrada(entrada);
+            devolucion.setEntrada(entradaActualizada);
             devolucion.setEstado(EstadoDevolucion.SOLICITADA);
             devolucion.setMotivo(request.motivo());
             devolucion.setSolicitadaEn(LocalDateTime.now(clock));
-            entrada.setEstado(EstadoEntrada.DEVOLUCION_SOLICITADA);
-            entradaRepository.saveAndFlush(entrada);
             Devolucion guardada = devolucionRepository.saveAndFlush(devolucion);
             registro.registrar(Operacion.DEVOLUCION_SOLICITADA, datos(
                     "devolucionId", guardada.getId(),
-                    "entradaId", entrada.getId(),
-                    "compraId", entrada.getCompra().getId(),
-                    "eventoId", entrada.getEventoId(),
+                    "entradaId", entradaActualizada.getId(),
+                    "compraId", compraId,
+                    "eventoId", entradaActualizada.getEventoId(),
                     "clienteId", clienteId,
-                    "monto", entrada.getPrecioUnitario()));
+                    "monto", entradaActualizada.getPrecioUnitario()));
             return DevolucionResponse.from(guardada);
         });
     }

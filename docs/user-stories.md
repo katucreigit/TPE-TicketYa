@@ -344,10 +344,14 @@ Criterios de aceptación:
 ## F8 – Control de acceso con QR (E2)
 
 ### US-23 Validar la entrada en el ingreso
-**Como** personal de acceso, **quiero** escanear el QR, **para** permitir solo ingresos válidos.
-- **Dado** un QR de una entrada `EMITIDA` del evento correcto, **cuando** lo escaneo, **entonces** se valida y se marca `USADA`.
-- **Dado** un QR ya usado, de otro evento o inexistente, **cuando** lo escaneo, **entonces** se rechaza con el motivo.
-- **Dado** dos escaneos simultáneos del mismo QR, **cuando** se procesan, **entonces** solo uno ingresa.
+**Como** personal de acceso (`PERSONAL_ACCESO`), **quiero** escanear el QR, **para** permitir solo ingresos válidos.
+- **Dado** un QR de una entrada `EMITIDA` del evento correcto, **cuando** lo escaneo con rol `PERSONAL_ACCESO`, **entonces** responde `200`, la entrada pasa a `USADA` y registra `usadaEn` y `validadaPor` (tomado de `X-User-Id`).
+- **Dado** un usuario sin rol `PERSONAL_ACCESO`, **cuando** intenta validar un QR, **entonces** recibe `403 ACCESO_DENEGADO`.
+- **Dado** un QR inexistente o con formato distinto de UUID, **cuando** lo escaneo, **entonces** recibo `404 QR_INEXISTENTE`.
+- **Dado** una entrada perteneciente a otro evento, **cuando** lo escaneo, **entonces** recibo `422 EVENTO_INCORRECTO` y no cambia de estado.
+- **Dado** una entrada ya `USADA`, **cuando** la vuelvo a escanear, **entonces** recibo `409 ENTRADA_USADA` incluyendo el valor de `usadaEn`.
+- **Dado** una entrada en estado `DEVOLUCION_SOLICITADA`, `REINTEGRO_PENDIENTE` o `REINTEGRADA`, **cuando** la escaneo, **entonces** recibo `409 ENTRADA_NO_VALIDA` incluyendo el estado actual.
+- **Dado** múltiples escaneos simultáneos del mismo QR (o un escaneo simultáneo con una devolución o cancelación), **cuando** se procesan, **entonces** a lo sumo uno tiene éxito y la base queda consistente.
 
 ## F9 – Preferencias y recomendaciones (E2)
 

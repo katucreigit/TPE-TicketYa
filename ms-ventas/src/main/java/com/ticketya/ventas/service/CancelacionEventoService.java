@@ -231,8 +231,13 @@ public class CancelacionEventoService {
 
     /** Pasa las entradas EMITIDA a REINTEGRO_PENDIENTE y les crea (o reutiliza) su reintegro de cancelacion. */
     private int marcarPendientes(Long eventoId) {
-        List<Entrada> emitidas = entradaRepository.bloquearPorEventoYEstado(eventoId, EstadoEntrada.EMITIDA);
-        for (Entrada entrada : emitidas) {
+        List<Entrada> candidatas = entradaRepository.findByEventoIdAndEstadoOrderById(eventoId, EstadoEntrada.EMITIDA);
+        int marcadas = 0;
+        for (Entrada candidata : candidatas) {
+            if (entradaRepository.transicionarDesdeEmitida(candidata.getId(), EstadoEntrada.REINTEGRO_PENDIENTE) == 0) {
+                continue;
+            }
+            Entrada entrada = entradaRepository.findById(candidata.getId()).orElseThrow();
             if (reintegroRepository.findByEntradaIdAndTipo(entrada.getId(), TIPO).isEmpty()) {
                 Reintegro reintegro = new Reintegro();
                 reintegro.setEntrada(entrada);
@@ -241,13 +246,12 @@ public class CancelacionEventoService {
                 reintegro.setEstado(EstadoReintegro.PENDIENTE);
                 reintegroRepository.saveAndFlush(reintegro);
             }
-            entrada.setEstado(EstadoEntrada.REINTEGRO_PENDIENTE);
-            entradaRepository.saveAndFlush(entrada);
+            marcadas++;
         }
-        if (!emitidas.isEmpty()) {
-            log.info("Evento {} cancelado: {} entradas pasan a REINTEGRO_PENDIENTE", eventoId, emitidas.size());
+        if (marcadas > 0) {
+            log.info("Evento {} cancelado: {} entradas pasan a REINTEGRO_PENDIENTE", eventoId, marcadas);
         }
-        return emitidas.size();
+        return marcadas;
     }
 
     private static ReintegroPendiente pendienteDe(Reintegro reintegro) {

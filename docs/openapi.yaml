@@ -49,7 +49,7 @@ tags:
   - name: Compras
     description: Pago de la reserva y emisión de entradas con QR (ms-ventas)
   - name: Entradas
-    description: Entradas emitidas del cliente (ms-ventas)
+    description: Entradas emitidas del cliente y control de acceso por QR (ms-ventas)
   - name: Devoluciones
     description: Solicitud, aprobación y rechazo de devoluciones (ms-ventas)
   - name: Notificaciones
@@ -963,7 +963,70 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  # ------------------------------------------------------------------ DEVOLUCIONES
+  /entradas/validar:
+    post:
+      tags: [Entradas]
+      operationId: validarEntrada
+      summary: Validar una entrada por código QR en el ingreso al evento
+      description: |
+        Rol `PERSONAL_ACCESO`. Verifica el `codigoQr` para el `eventoId` indicado y transiciona atómicamente la
+        entrada de `EMITIDA` a `USADA`, registrando `usadaEn` y `validadaPor` (tomado exclusivamente de `X-User-Id`).
+        No realiza consultas a `ms-eventos` ni `ms-reservas`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ValidarEntradaRequest' }
+            example:
+              codigoQr: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64
+              eventoId: 42
+      responses:
+        '200':
+          description: Entrada validada y marcada USADA
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entrada'
+              example:
+                entradaId: e1b2c3d4-0001-4aaa-8bbb-111122223333
+                eventoId: 42
+                sectorId: 11
+                fila: 3
+                numero: 10
+                precioUnitario: 45000.00
+                codigoQr: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64
+                estado: USADA
+                usadaEn: '2026-11-23T20:05:00'
+                validadaPor: acc-7
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Código QR inexistente o con formato distinto de UUID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { timestamp: '2026-11-23T20:05:00', status: 404, error: Not Found, code: QR_INEXISTENTE, message: No existe una entrada para el codigo QR indicado, path: /entradas/validar }
+        '409':
+          description: La entrada ya fue usada o está en un estado inválido para ingresar
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                entradaUsada:
+                  value: { timestamp: '2026-11-23T20:05:00', status: 409, error: Conflict, code: ENTRADA_USADA, message: 'La entrada ya fue usada en 2026-11-23T20:01:00', path: /entradas/validar }
+                entradaNoValida:
+                  value: { timestamp: '2026-11-23T20:05:00', status: 409, error: Conflict, code: ENTRADA_NO_VALIDA, message: 'La entrada no es valida para ingresar (estado actual: DEVOLUCION_SOLICITADA)', path: /entradas/validar }
+        '422':
+          description: La entrada pertenece a otro evento
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { timestamp: '2026-11-23T20:05:00', status: 422, error: Unprocessable Entity, code: EVENTO_INCORRECTO, message: La entrada corresponde a otro evento, path: /entradas/validar }
   /devoluciones:
     post:
       tags: [Devoluciones]
@@ -1340,6 +1403,29 @@ paths:
                   reintegrosPendientes: { type: integer, example: 0 }
         '404':
           $ref: '#/components/responses/NotFound'
+
+  /internal/eventos/{eventoId}/reporte-ventas:
+    servers:
+      - url: http://localhost:8083
+        description: ms-ventas (directo, sin gateway)
+    get:
+      tags: [Internos]
+      operationId: internoReporteVentasEvento
+      summary: "[ms-eventos → ms-ventas] Obtener reporte de ventas por evento y sector"
+      description: |
+        Devuelve los totales del evento y el desglose por sector a partir de compras en estado `APROBADA`.
+        Si el evento no tiene ventas aprobadas registradas, responde `200` con contadores y recaudación en `0` y `sectores: []`.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+      responses:
+        '200':
+          description: Reporte de ventas del evento
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReporteVentasEvento'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   # ------------------------------------------------------------------ NOTIFICACIONES
   /internal/notificaciones:
@@ -1837,6 +1923,12 @@ components:
       properties:
         reservaId: { type: string, format: uuid, example: 5b1c7e0a-3f4d-4c8a-9a62-1d7c0f2e9b11 }
         medioPago: { $ref: '#/components/schemas/MedioPago' }
+    ValidarEntradaRequest:
+      type: object
+      required: [codigoQr, eventoId]
+      properties:
+        codigoQr: { type: string, example: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64 }
+        eventoId: { type: integer, format: int64, example: 42 }
     Entrada:
       type: object
       properties:
@@ -1848,6 +1940,8 @@ components:
         precioUnitario: { type: number, format: double, example: 45000.00 }
         codigoQr: { type: string, description: Código único para validar el ingreso, example: 9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64 }
         estado: { $ref: '#/components/schemas/EstadoEntrada' }
+        usadaEn: { type: string, format: date-time, nullable: true, description: Fecha y hora UTC de validación del ingreso (presente cuando estado=USADA), example: '2026-11-23T20:05:00' }
+        validadaPor: { type: string, nullable: true, description: Identificador del operador PERSONAL_ACCESO que validó la entrada (presente cuando estado=USADA), example: acc-7 }
     Compra:
       type: object
       properties:
@@ -1929,6 +2023,50 @@ components:
               filas: { type: integer, example: 20 }
               asientosPorFila: { type: integer, example: 30 }
               capacidad: { type: integer, example: 5000 }
+    ReporteSectorVentas:
+      type: object
+      required:
+        - sectorId
+        - entradasVendidas
+        - entradasDevueltas
+        - entradasReintegroPendiente
+        - entradasDevolucionSolicitada
+        - recaudacionNeta
+      properties:
+        sectorId: { type: integer, format: int64, example: 11 }
+        entradasVendidas: { type: integer, format: int64, example: 120 }
+        entradasDevueltas: { type: integer, format: int64, example: 5 }
+        entradasReintegroPendiente: { type: integer, format: int64, example: 1 }
+        entradasDevolucionSolicitada: { type: integer, format: int64, example: 2 }
+        recaudacionNeta:
+          type: number
+          format: double
+          description: Monto decimal exacto (BigDecimal) descontando únicamente entradas en estado REINTEGRADA.
+          example: 5175057.50
+    ReporteVentasEvento:
+      type: object
+      required:
+        - eventoId
+        - entradasVendidas
+        - entradasDevueltas
+        - entradasReintegroPendiente
+        - entradasDevolucionSolicitada
+        - recaudacionNeta
+        - sectores
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        entradasVendidas: { type: integer, format: int64, example: 120 }
+        entradasDevueltas: { type: integer, format: int64, example: 5 }
+        entradasReintegroPendiente: { type: integer, format: int64, example: 1 }
+        entradasDevolucionSolicitada: { type: integer, format: int64, example: 2 }
+        recaudacionNeta:
+          type: number
+          format: double
+          description: Monto decimal exacto (BigDecimal) descontando únicamente entradas en estado REINTEGRADA.
+          example: 5175057.50
+        sectores:
+          type: array
+          items: { $ref: '#/components/schemas/ReporteSectorVentas' }
 
     # ---- notificaciones
     TipoNotificacion:

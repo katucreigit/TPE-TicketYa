@@ -19,7 +19,11 @@ final class Identidad {
     static final String HEADER_IDEMPOTENCY = "Idempotency-Key";
     private static final String CLIENTE = "CLIENTE";
     private static final String ADMIN = "ADMIN";
+    private static final String PERSONAL_ACCESO = "PERSONAL_ACCESO";
     private static final Pattern EMAIL_BASICO = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+
+    private record Headers(String userId, String rol) {
+    }
 
     record Solicitante(String userId, boolean esAdmin) {
     }
@@ -29,28 +33,44 @@ final class Identidad {
 
     /** Devuelve el id del cliente si los headers estan presentes y el rol es CLIENTE. */
     static String cliente(String userId, String rol) {
-        Solicitante s = validarHeaders(userId, rol);
-        if (s.esAdmin() || !CLIENTE.equals(rol.trim())) {
+        Headers h = exigirHeaders(userId, rol);
+        if (!CLIENTE.equals(h.rol())) {
             throw new ForbiddenException();
         }
-        return s.userId();
+        return h.userId();
     }
 
     /** Devuelve el id del administrador si los headers estan presentes y el rol es ADMIN. */
     static String admin(String userId, String rol) {
-        Solicitante s = validarHeaders(userId, rol);
-        if (!s.esAdmin()) {
+        Headers h = exigirHeaders(userId, rol);
+        if (!ADMIN.equals(h.rol())) {
             throw new ForbiddenException();
         }
-        return s.userId();
+        return h.userId();
+    }
+
+    /** Devuelve el id del operador si los headers estan presentes y el rol es PERSONAL_ACCESO. */
+    static String personalAcceso(String userId, String rol) {
+        Headers h = exigirHeaders(userId, rol);
+        if (!PERSONAL_ACCESO.equals(h.rol())) {
+            throw new ForbiddenException();
+        }
+        return h.userId();
     }
 
     /** Permite rol CLIENTE o ADMIN (para consultar el detalle de una compra o entrada). */
     static Solicitante clienteOAdmin(String userId, String rol) {
-        return validarHeaders(userId, rol);
+        Headers h = exigirHeaders(userId, rol);
+        if (CLIENTE.equals(h.rol())) {
+            return new Solicitante(h.userId(), false);
+        }
+        if (ADMIN.equals(h.rol())) {
+            return new Solicitante(h.userId(), true);
+        }
+        throw new ForbiddenException();
     }
 
-    private static Solicitante validarHeaders(String userId, String rol) {
+    private static Headers exigirHeaders(String userId, String rol) {
         List<String> faltantes = new ArrayList<>();
         if (userId == null || userId.isBlank()) {
             faltantes.add("El header " + HEADER_ID + " es obligatorio");
@@ -61,14 +81,7 @@ final class Identidad {
         if (!faltantes.isEmpty()) {
             throw new BadRequestException("VALIDACION", "Faltan los headers de identidad", faltantes);
         }
-        String rolLimpio = rol.trim();
-        if (CLIENTE.equals(rolLimpio)) {
-            return new Solicitante(userId.trim(), false);
-        }
-        if (ADMIN.equals(rolLimpio)) {
-            return new Solicitante(userId.trim(), true);
-        }
-        throw new ForbiddenException();
+        return new Headers(userId.trim(), rol.trim());
     }
 
     /** Valida que el header Idempotency-Key este presente y no sea blanco (400 IDEMPOTENCY_KEY_REQUERIDA). */

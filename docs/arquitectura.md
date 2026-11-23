@@ -20,7 +20,7 @@ Resumen de recursos. El detalle completo (parámetros, códigos de respuesta y e
 |---|---|
 | ms-eventos | `/lugares`, `/lugares/{id}/sectores`, `/eventos`, `/eventos/{id}`, `/eventos/{id}/precios`, `/eventos/{id}/publicar`, `/eventos/{id}/suspender`, `/eventos/{id}/reanudar`, `/eventos/{id}/cancelar`, `/eventos/{id}/sectores` |
 | ms-reservas | `/eventos/{id}/disponibilidad`, `/eventos/{id}/sectores/{sid}/asientos`, `/reservas`, `/reservas/{id}` |
-| ms-ventas | `/compras`, `/compras/{id}`, `/entradas`, `/entradas/{id}`, `/devoluciones`, `/devoluciones/{id}/aprobar`, `/devoluciones/{id}/rechazar` |
+| ms-ventas | `/compras`, `/compras/{id}`, `/entradas`, `/entradas/{id}`, `/entradas/validar`, `/devoluciones`, `/devoluciones/{id}/aprobar`, `/devoluciones/{id}/rechazar` |
 
 ### Rutas del API Gateway
 

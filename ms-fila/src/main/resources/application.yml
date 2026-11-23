@@ -1,0 +1,37 @@
+server:
+  port: 8086
+
+spring:
+  application:
+    name: ms-fila
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Si Redis no responde, los endpoints fallan rapido con 503 (design.md D1).
+      timeout: 500ms
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    # Cada linea lleva el correlationId de la solicitud o del proceso en curso (MDC, add-trazabilidad).
+    level: "%5p [%X{correlationId:-}]"
+
+ticketya:
+  fila:
+    minutos-ventana: 10
+    tamano-tanda-default: 100
+    segundos-entre-tandas-default: 60
+    ttl-horas: 24
+    procesador:
+      habilitado: true
+      # Cada cuanto se revisan las filas activas para habilitar tandas y vencer turnos.
+      intervalo: 1s

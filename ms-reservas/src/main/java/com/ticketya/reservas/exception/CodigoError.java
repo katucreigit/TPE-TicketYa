@@ -10,6 +10,7 @@ public final class CodigoError {
 
     public static final String VALIDACION = "VALIDACION";                       // 400
     public static final String ACCESO_DENEGADO = "ACCESO_DENEGADO";             // 403
+    public static final String FILA_NO_HABILITADO = "FILA_NO_HABILITADO";       // 403
     public static final String NO_ENCONTRADO = "NO_ENCONTRADO";                 // 404
     public static final String ESTADO_INVALIDO = "ESTADO_INVALIDO";             // 409
     public static final String ASIENTO_NO_DISPONIBLE = "ASIENTO_NO_DISPONIBLE"; // 409
@@ -28,6 +29,12 @@ public final class CodigoError {
 
     public static ForbiddenException accesoDenegado() {
         return new ForbiddenException();
+    }
+
+    /** El evento tiene la fila virtual activa y el cliente todavia no esta habilitado (add-fila-virtual). */
+    public static ForbiddenException filaNoHabilitado() {
+        return new ForbiddenException(FILA_NO_HABILITADO,
+                "El evento tiene fila virtual y todavia no es su turno para reservar");
     }
 
     public static NotFoundException noEncontrado(String message) {

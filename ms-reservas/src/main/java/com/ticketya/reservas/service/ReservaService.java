@@ -1,5 +1,6 @@
 package com.ticketya.reservas.service;
 
+import com.ticketya.reservas.client.FilaClient;
 import com.ticketya.reservas.dto.AsientoRef;
 import com.ticketya.reservas.dto.DevolucionRequest;
 import com.ticketya.reservas.dto.ReservaRequest;
@@ -17,9 +18,12 @@ import com.ticketya.reservas.repository.InventarioSectorRepository;
 import com.ticketya.reservas.repository.ReservaItemRepository;
 import com.ticketya.reservas.repository.ReservaRepository;
 import com.ticketya.reservas.repository.projection.InventarioReservaView;
+import com.ticketya.reservas.trazabilidad.Correlacion;
 import com.ticketya.reservas.trazabilidad.RegistroOperaciones;
 import com.ticketya.reservas.trazabilidad.RegistroOperaciones.MotivoLiberacion;
 import com.ticketya.reservas.trazabilidad.RegistroOperaciones.Operacion;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -49,6 +53,8 @@ import static com.ticketya.reservas.trazabilidad.RegistroOperaciones.datos;
 @Service
 public class ReservaService {
 
+    private static final Logger log = LoggerFactory.getLogger(ReservaService.class);
+
     private final ReservaRepository reservaRepository;
     private final ReservaItemRepository reservaItemRepository;
     private final AsientoRepository asientoRepository;
@@ -59,6 +65,8 @@ public class ReservaService {
     private final int loteVencimiento;
     private final TransactionTemplate transaccion;
     private final RegistroOperaciones registro;
+    private final FilaClient filaClient;
+    private final boolean consultarFila;
 
     public ReservaService(ReservaRepository reservaRepository,
                           ReservaItemRepository reservaItemRepository,
@@ -68,10 +76,14 @@ public class ReservaService {
                           AvisoAgotadoService avisoAgotadoService,
                           PlatformTransactionManager transactionManager,
                           RegistroOperaciones registro,
+                          FilaClient filaClient,
                           @Value("${ticketya.reserva.minutos-expiracion:10}") int minutosExpiracion,
-                          @Value("${ticketya.jobs.lote-vencimiento:100}") int loteVencimiento) {
+                          @Value("${ticketya.jobs.lote-vencimiento:100}") int loteVencimiento,
+                          @Value("${ticketya.fila.consultar:true}") boolean consultarFila) {
         this.transaccion = new TransactionTemplate(transactionManager);
         this.registro = registro;
+        this.filaClient = filaClient;
+        this.consultarFila = consultarFila;
         this.reservaRepository = reservaRepository;
         this.reservaItemRepository = reservaItemRepository;
         this.asientoRepository = asientoRepository;
@@ -91,6 +103,10 @@ public class ReservaService {
      * Cualquier excepcion revierte la transaccion completa: no queda ningun lugar tomado.
      */
     public ReservaResponse crear(String clienteId, ReservaRequest request) {
+        // add-fila-virtual: un pedido invalido responde 400 antes de consultar la fila. validarPedido es pura y se
+        // vuelve a ejecutar dentro de la transaccion, donde se usa su resultado.
+        ReglasReserva.validarPedido(request);
+        verificarFila(request.eventoId(), clienteId);
         ReservaResponse respuesta = transaccion.execute(s -> crearEnTransaccion(clienteId, request));
         registro.registrar(Operacion.RESERVA_CREADA, datos(
                 "reservaId", respuesta.reservaId(),
@@ -102,6 +118,27 @@ public class ReservaService {
                 "expiraEn", respuesta.expiraEn()));
         avisoAgotadoService.evaluarDespuesDelCommit(request.eventoId());
         return respuesta;
+    }
+
+    /**
+     * Fila virtual (add-fila-virtual, design.md D10): fuera de la transaccion, para no retener una conexion de la
+     * base durante la llamada HTTP. Si ms-fila no responde se deja pasar (fail-open) y se registra una advertencia:
+     * la fila ordena el acceso, pero la integridad de la venta sigue garantizada por esta base.
+     */
+    private void verificarFila(Long eventoId, String clienteId) {
+        if (!consultarFila) {
+            return;
+        }
+        FilaClient.Estado estado = filaClient.estado(eventoId, clienteId);
+        if (!estado.disponible()) {
+            log.warn("FILA_NO_DISPONIBLE eventoId={} clienteId={} causa={} correlationId={}",
+                    eventoId, Correlacion.limpiar(clienteId), Correlacion.limpiar(estado.causa()),
+                    Correlacion.actual());
+            return;
+        }
+        if (estado.bloquea()) {
+            throw CodigoError.filaNoHabilitado();
+        }
     }
 
     private ReservaResponse crearEnTransaccion(String clienteId, ReservaRequest request) {

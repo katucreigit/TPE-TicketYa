@@ -1,0 +1,5 @@
+ticketya:
+  fila:
+    procesador:
+      # Las pruebas ejecutan el proceso a mano, con el reloj controlable.
+      habilitado: false

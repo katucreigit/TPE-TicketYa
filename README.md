@@ -34,8 +34,9 @@ Incluye todo lo de la Entrega 1 más:
 | `ms-eventos` | 8081 | `db_eventos` (5433) | Lugares, sectores, eventos, estados y búsqueda |
 | `ms-reservas` | 8082 | `db_reservas` (5434) | Inventario, reservas temporales y control de doble venta |
 | `ms-ventas` | 8083 | `db_ventas` (5435) | Compras, pagos, entradas con QR, devoluciones y reintegros |
+| `ms-notificaciones` | 8085 | `db_notificaciones` (MongoDB, 27017) | Notificaciones a clientes (email simulado) con reintentos y deduplicación |
 
-Cada microservicio tiene su propia base PostgreSQL y no comparte tablas con los demás.
+Cada microservicio tiene su propia base (PostgreSQL, o MongoDB en el caso de `ms-notificaciones`) y no comparte datos con los demás.
 Los endpoints `/internal/**` se usan solo entre servicios y el gateway no los expone.
 El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
@@ -57,10 +58,10 @@ Desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-Levanta 9 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+Levanta 11 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), MongoDB (`mongo`, 27017), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084), `ms-notificaciones` (8085) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
 
 - Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
-- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los cinco antes de usar la API.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los seis antes de usar la API.
 - Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
 - `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
 
@@ -75,10 +76,10 @@ docker build -t ticketya/ms-eventos ms-eventos
 1. Levantar solo las bases de datos (una por servicio):
 
    ```
-   docker compose up -d db-eventos db-reservas db-ventas db-auth
+   docker compose up -d db-eventos db-reservas db-ventas db-auth mongo
    ```
 
-   Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436 (usuario y contraseña `ticketya`).
+   Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436 y un MongoDB 7 en el 27017 (usuario y contraseña `ticketya` en todas).
 
 2. Iniciar cada servicio en una terminal distinta, desde la raíz del repositorio:
 
@@ -87,6 +88,7 @@ docker build -t ticketya/ms-eventos ms-eventos
    cd ms-reservas  && mvn spring-boot:run
    cd ms-ventas    && mvn spring-boot:run
    cd ms-auth      && mvn spring-boot:run
+   cd ms-notificaciones && mvn spring-boot:run
    cd api-gateway  && mvn spring-boot:run
    ```
 
@@ -94,7 +96,7 @@ docker build -t ticketya/ms-eventos ms-eventos
 
 3. Usar la API a través del gateway: `http://localhost:8080/api`.
 
-Las tablas se crean automáticamente al iniciar cada servicio.
+Las tablas (y la colección e índices de MongoDB) se crean automáticamente al iniciar cada servicio.
 
 ### Configuración
 
@@ -102,7 +104,8 @@ Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cam
 
 | Variable | Servicio | Valor por defecto |
 |---|---|---|
-| `DB_URL`, `DB_USER`, `DB_PASSWORD` | todos los ms | `localhost` en el puerto de su base, usuario `ticketya` |
+| `DB_URL`, `DB_USER`, `DB_PASSWORD` | los ms con PostgreSQL | `localhost` en el puerto de su base, usuario `ticketya` |
+| `MONGO_URI` | `ms-notificaciones` | `mongodb://ticketya:ticketya@localhost:27017/db_notificaciones?authSource=admin` |
 | `MS_AUTH_URL` | `api-gateway` | `http://localhost:8084` |
 | `JWT_SECRET` | `api-gateway`, `ms-auth` | Clave de desarrollo (Base64) de sus `application.yml`; tiene que ser la misma en los dos. Para otro entorno, definirla en el shell o en un `.env` sin versionar |
 | `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas` | `http://localhost:8081` |
@@ -117,6 +120,7 @@ Cada servicio publica su documentación Swagger una vez iniciado:
 - ms-eventos: <http://localhost:8081/swagger-ui.html>
 - ms-reservas: <http://localhost:8082/swagger-ui.html>
 - ms-ventas: <http://localhost:8083/swagger-ui.html>
+- ms-notificaciones: <http://localhost:8085/swagger-ui.html>
 
 El contrato completo de la API pública está en [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0).
 
@@ -193,6 +197,20 @@ La pasarela es un mock que decide según el token del medio de pago:
 | `tok_rechazado` | Pago rechazado (`402`) |
 | `tok_timeout` | La pasarela cobra pero no responde a tiempo (`504`); al reintentar con la misma `Idempotency-Key` devuelve el cobro original, sin cobrar de nuevo |
 
+## Notificaciones (email simulado)
+
+`ms-notificaciones` recibe los pedidos en `POST http://localhost:8085/internal/notificaciones` (solo entre servicios), responde `202` y los envía en segundo plano escribiendo el email en el log. Si un envío falla, lo reintenta con espera creciente (2 s y 4 s) y, después de 3 intentos, la notificación queda `FALLIDA`. Si se repite un pedido con la misma `claveDeduplicacion`, devuelve la notificación existente en lugar de crear otra. Un administrador las consulta con `GET http://localhost:8085/notificaciones` (filtros `usuarioId`, `tipo` y `estado`) y `GET /notificaciones/{id}`, con `X-User-Rol: ADMIN`.
+
+Para probar los reintentos, el envío simulado falla según el email del destinatario (se cambia en `ticketya.notificaciones.simulacion`):
+
+| Email | Resultado |
+|---|---|
+| `falla@ticketya.test` | Falla siempre; queda `FALLIDA` con 3 intentos |
+| `falla-una-vez@ticketya.test` | Falla el primer intento y se envía en el segundo |
+| cualquier otro | Se envía en el primer intento |
+
+Todavía no hay ruta en el gateway, y los demás servicios todavía no llaman a `ms-notificaciones`. Esas integraciones están pendientes (ver `openspec/changes/add-notificaciones/tasks.md`).
+
 ## Pruebas
 
 Cada servicio se prueba por separado:
@@ -202,10 +220,11 @@ cd ms-auth     && mvn test
 cd ms-eventos  && mvn test
 cd ms-reservas && mvn test
 cd ms-ventas   && mvn test
+cd ms-notificaciones && mvn test
 cd api-gateway && mvn test
 ```
 
-La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa.
+La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa. Las pruebas de `ms-reservas` y `ms-notificaciones` usan Testcontainers (PostgreSQL 16 y MongoDB 7), así que necesitan Docker en ejecución.
 
 ## Documentación del proyecto
 
@@ -285,9 +304,10 @@ ms-auth/           Microservicio de autenticación (registro, login, JWT)
 ms-eventos/        Microservicio de eventos
 ms-reservas/       Microservicio de reservas
 ms-ventas/         Microservicio de ventas
+ms-notificaciones/ Microservicio de notificaciones (MongoDB)
 docs/              Historias de usuario, arquitectura, modelo de datos y OpenAPI
 openspec/          Especificaciones y cambios
 postman/           Colección de requests
-docker-compose.yml Sistema completo: bases PostgreSQL, microservicios y gateway
+docker-compose.yml Sistema completo: bases PostgreSQL y MongoDB, microservicios y gateway
 AGENTS.md          Convenciones del proyecto
 ```

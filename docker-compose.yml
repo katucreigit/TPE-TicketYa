@@ -1,6 +1,6 @@
-# Sistema completo: 4 bases PostgreSQL, 4 microservicios y el API Gateway.
+# Sistema completo: 4 bases PostgreSQL, 1 MongoDB, 5 microservicios y el API Gateway.
 #   Todo:            docker compose up -d --build
-#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth  (servicios desde el IDE)
+#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth mongo  (servicios desde el IDE)
 # Dentro de la red de compose los servicios se llaman por nombre de servicio; fuera de compose
 # cada application.yml usa localhost por defecto.
 services:
@@ -72,6 +72,25 @@ services:
       timeout: 5s
       retries: 10
 
+  # MongoDB compartido por los servicios NoSQL; cada uno usa su propia base (ms-notificaciones: db_notificaciones).
+  mongo:
+    image: mongo:7
+    container_name: ticketya-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ticketya
+      MONGO_INITDB_ROOT_PASSWORD: ticketya
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      # En una máquina cargada mongo tarda más en arrancar: las fallas de este período no cuentan como intentos.
+      start_period: 30s
+
   ms-eventos:
     build: ./ms-eventos
     image: ticketya/ms-eventos
@@ -136,6 +155,18 @@ services:
       db-auth:
         condition: service_healthy
 
+  ms-notificaciones:
+    build: ./ms-notificaciones
+    image: ticketya/ms-notificaciones
+    container_name: ticketya-ms-notificaciones
+    environment:
+      MONGO_URI: mongodb://ticketya:ticketya@mongo:27017/db_notificaciones?authSource=admin
+    ports:
+      - "8085:8085"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
   # El gateway arranca al final, después de los cuatro microservicios.
   api-gateway:
     build: ./api-gateway
@@ -164,3 +195,4 @@ volumes:
   db-reservas-data:
   db-ventas-data:
   db-auth-data:
+  mongo-data:

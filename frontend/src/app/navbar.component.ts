@@ -6,52 +6,7 @@ import { AuthService } from './auth.service';
   selector: 'app-navbar',
   standalone: true,
   imports: [RouterLink, RouterLinkActive],
-  template: `
-    <nav class="navbar navbar-expand-md navbar-dark bg-primary">
-      <div class="container-xl">
-        <a class="navbar-brand fw-bold" routerLink="/events">TicketYa</a>
-        <button class="navbar-toggler" type="button"
-                data-bs-toggle="collapse" data-bs-target="#nav">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="nav">
-          <ul class="navbar-nav me-auto">
-            <li class="nav-item">
-              <a class="nav-link" routerLink="/events" routerLinkActive="fw-bold">Eventos</a>
-            </li>
-            @if (auth.isAuth() && auth.hasRol('CLIENTE')) {
-              <li class="nav-item">
-                <a class="nav-link" routerLink="/my-tickets" routerLinkActive="fw-bold">Mis Entradas</a>
-              </li>
-            }
-          </ul>
-          <ul class="navbar-nav">
-            @if (auth.isAuth()) {
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
-                  {{ auth.user()?.rol }} · {{ auth.user()?.email }}
-                </a>
-                <ul class="dropdown-menu dropdown-menu-end">
-                  <li>
-                    <button class="dropdown-item text-danger" (click)="auth.logout()">
-                      Cerrar sesión
-                    </button>
-                  </li>
-                </ul>
-              </li>
-            } @else {
-              <li class="nav-item">
-                <a class="nav-link" routerLink="/login">Iniciar sesión</a>
-              </li>
-              <li class="nav-item">
-                <a class="nav-link" routerLink="/register">Registrarse</a>
-              </li>
-            }
-          </ul>
-        </div>
-      </div>
-    </nav>
-  `
+  templateUrl: './navbar.component.html'
 })
 export class NavbarComponent {
   auth = inject(AuthService);

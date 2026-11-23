@@ -2516,6 +2516,248 @@
             },
             "description": "Pasa las entradas `EMITIDA` a `REINTEGRO_PENDIENTE` y solicita el reintegro a la pasarela por cada una.\nIdempotente: volver a llamarlo no reintegra dos veces la misma entrada."
           }
+        },
+        {
+          "name": "[cualquier ms → ms-notificaciones] Pedir una notificación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "const body = pm.response.json();",
+                  "pm.test('Devuelve id y estado', () => { pm.expect(body.id).to.be.a('string'); pm.expect(body.estado).to.be.oneOf(['PENDIENTE', 'ENVIADA']); });",
+                  "pm.collectionVariables.set('notificacionId', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "postman-{{$timestamp}}"
+              }
+            ],
+            "url": {
+              "raw": "{{notificacionesUrl}}/internal/notificaciones",
+              "host": [
+                "{{notificacionesUrl}}"
+              ],
+              "path": [
+                "internal",
+                "notificaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"COMPRA_CONFIRMADA\",\n  \"destinatario\": {\n    \"usuarioId\": \"{{clienteId}}\",\n    \"email\": \"cliente@example.com\"\n  },\n  \"datos\": {\n    \"compraId\": 55,\n    \"eventoId\": 42,\n    \"total\": 30000,\n    \"entradas\": [\n      {\n        \"entradaId\": 901,\n        \"sector\": \"Platea\",\n        \"asiento\": \"F12\"\n      }\n    ]\n  },\n  \"claveDeduplicacion\": \"compra-postman-55\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Responde `202` con el `id` y el estado `PENDIENTE`; el envío (email simulado en el log) ocurre en segundo plano."
+          }
+        },
+        {
+          "name": "[cualquier ms → ms-notificaciones] Repetir el pedido con la misma clave",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.test('Mismo id que el primer pedido', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('notificacionId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "postman-{{$timestamp}}"
+              }
+            ],
+            "url": {
+              "raw": "{{notificacionesUrl}}/internal/notificaciones",
+              "host": [
+                "{{notificacionesUrl}}"
+              ],
+              "path": [
+                "internal",
+                "notificaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"COMPRA_CONFIRMADA\",\n  \"destinatario\": {\n    \"usuarioId\": \"{{clienteId}}\",\n    \"email\": \"cliente@example.com\"\n  },\n  \"datos\": {\n    \"compraId\": 55,\n    \"eventoId\": 42,\n    \"total\": 30000,\n    \"entradas\": [\n      {\n        \"entradaId\": 901,\n        \"sector\": \"Platea\",\n        \"asiento\": \"F12\"\n      }\n    ]\n  },\n  \"claveDeduplicacion\": \"compra-postman-55\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Misma `claveDeduplicacion`: devuelve la notificación existente (mismo `id`) y no crea otra."
+          }
+        },
+        {
+          "name": "[cualquier ms → ms-notificaciones] Pedido para un destinatario que falla",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted aunque el envío vaya a fallar', () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": "postman-{{$timestamp}}"
+              }
+            ],
+            "url": {
+              "raw": "{{notificacionesUrl}}/internal/notificaciones",
+              "host": [
+                "{{notificacionesUrl}}"
+              ],
+              "path": [
+                "internal",
+                "notificaciones"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tipo\": \"EVENTO_CANCELADO\",\n  \"destinatario\": {\n    \"usuarioId\": \"{{clienteId}}\",\n    \"email\": \"falla@ticketya.test\"\n  },\n  \"datos\": {\n    \"eventoId\": 42,\n    \"nombre\": \"Recital X\",\n    \"motivo\": \"Suspensión por clima\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El envío simulado falla siempre para `falla@ticketya.test`: igual responde `202`, y a los ~6 s la notificación queda `FALLIDA` con 3 intentos."
+          }
+        },
+        {
+          "name": "[admin] Listar notificaciones",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Es una página', () => pm.expect(pm.response.json()).to.have.property('totalElements'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{notificacionesUrl}}/notificaciones?usuarioId={{clienteId}}&page=0&size=20",
+              "host": [
+                "{{notificacionesUrl}}"
+              ],
+              "path": [
+                "notificaciones"
+              ],
+              "query": [
+                {
+                  "key": "usuarioId",
+                  "value": "{{clienteId}}"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Solo `ADMIN`. Filtros opcionales `usuarioId`, `tipo` y `estado`. Directo a 8085: la ruta del gateway está pendiente."
+          }
+        },
+        {
+          "name": "[admin] Ver una notificación",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Es la notificación pedida', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('notificacionId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-User-Id",
+                "value": "{{adminId}}"
+              },
+              {
+                "key": "X-User-Rol",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{notificacionesUrl}}/notificaciones/:id",
+              "host": [
+                "{{notificacionesUrl}}"
+              ],
+              "path": [
+                "notificaciones",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "{{notificacionId}}"
+                }
+              ]
+            },
+            "description": "Solo `ADMIN`. Muestra estado, intentos, último error, fechas y `correlationId`."
+          }
         }
       ],
       "description": "Estos endpoints no pasan por el gateway: se llaman directo a cada microservicio."
@@ -2537,6 +2779,10 @@
     {
       "key": "ventasUrl",
       "value": "http://localhost:8083"
+    },
+    {
+      "key": "notificacionesUrl",
+      "value": "http://localhost:8085"
     },
     {
       "key": "clienteId",
@@ -2620,6 +2866,10 @@
     },
     {
       "key": "accesoId",
+      "value": ""
+    },
+    {
+      "key": "notificacionId",
       "value": ""
     }
   ]

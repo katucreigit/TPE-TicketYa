@@ -1,0 +1,43 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: ms-notificaciones
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://ticketya:ticketya@localhost:27017/db_notificaciones?authSource=admin}
+      # Los indices se crean de forma explicita al arrancar (config/IndicesMongo).
+      auto-index-creation: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    # El correlationId de la notificacion en curso (MDC) aparece en cada linea.
+    level: "%5p [%X{correlationId:-}]"
+
+ticketya:
+  notificaciones:
+    procesador:
+      habilitado: true
+      # Cada cuanto se buscan notificaciones PENDIENTE con el proximo intento vencido.
+      intervalo: 1s
+      # Tiempo que una notificacion tomada queda reservada para quien la tomo.
+      reserva: 30s
+    reintentos:
+      max-intentos: 3
+      espera-inicial: 2s
+      factor: 2
+    simulacion:
+      emails-que-fallan:
+        - falla@ticketya.test
+      emails-que-fallan-una-vez:
+        - falla-una-vez@ticketya.test

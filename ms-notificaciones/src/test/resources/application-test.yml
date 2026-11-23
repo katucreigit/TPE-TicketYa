@@ -1,0 +1,6 @@
+ticketya:
+  notificaciones:
+    procesador:
+      intervalo: 100ms
+    reintentos:
+      espera-inicial: 200ms

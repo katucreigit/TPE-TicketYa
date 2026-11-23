@@ -1,6 +1,6 @@
 # TicketYa – Features y User Stories
 
-Roles: **CLIENTE**, **ORGANIZADOR**, **ADMIN**, **ACCESO** (personal de acceso al evento) y **SISTEMA** (procesos automáticos).
+Roles: **CLIENTE**, **ORGANIZADOR**, **ADMIN**, **PERSONAL_ACCESO** (personal de acceso al evento) y **SISTEMA** (procesos automáticos).
 Entregas: **E1** = core (esta entrega), **E2** = sistema completo (los criterios de las historias E2 son un borrador y se completan en la Entrega 2).
 Criterios de aceptación en formato *Dado / Cuando / Entonces*.
 
@@ -27,7 +27,7 @@ Criterios de aceptación en formato *Dado / Cuando / Entonces*.
 
 Aplican a todos los servicios y a todas las historias.
 
-**Identidad.** Sin autenticación en E1: el usuario llega en `X-User-Id` y el rol en `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `ACCESO`).
+**Identidad.** Sin autenticación en E1: el usuario llega en `X-User-Id` y el rol en `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `PERSONAL_ACCESO`).
 - Si falta alguno de los dos headers o el rol no es uno de los cuatro, la respuesta es `400`.
 - No hay servicio de usuarios en E1: cualquier `X-User-Id` no vacío se acepta como un usuario válido.
 - Si el rol no corresponde a la operación, la respuesta es `403`. El control con JWT y el `401` quedan para E2.

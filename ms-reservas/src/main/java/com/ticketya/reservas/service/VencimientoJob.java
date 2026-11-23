@@ -1,5 +1,6 @@
 package com.ticketya.reservas.service;
 
+import com.ticketya.reservas.trazabilidad.Correlacion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -27,15 +28,18 @@ public class VencimientoJob {
     @Scheduled(fixedDelayString = "${ticketya.jobs.intervalo-ms:30000}",
             initialDelayString = "${ticketya.jobs.intervalo-ms:30000}")
     public void ejecutar() {
-        try {
-            boolean quedan;
-            do {
-                quedan = reservaService.vencerLote();
-            } while (quedan);
-        } catch (RuntimeException ex) {
-            // El lote fallido se revirtio completo; lo retoma la proxima corrida.
-            log.warn("Fallo el vencimiento de reservas; se reintentara en la proxima corrida", ex);
-        }
-        avisoAgotadoService.reintentarPendientes();
+        // Cada corrida tiene su propio correlationId: relaciona las reservas vencidas con los avisos a ms-eventos.
+        Correlacion.enProceso(() -> {
+            try {
+                boolean quedan;
+                do {
+                    quedan = reservaService.vencerLote();
+                } while (quedan);
+            } catch (RuntimeException ex) {
+                // El lote fallido se revirtio completo; lo retoma la proxima corrida.
+                log.warn("Fallo el vencimiento de reservas; se reintentara en la proxima corrida", ex);
+            }
+            avisoAgotadoService.reintentarPendientes();
+        });
     }
 }

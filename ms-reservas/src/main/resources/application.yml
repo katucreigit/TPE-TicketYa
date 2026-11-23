@@ -24,6 +24,11 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+logging:
+  pattern:
+    # Cada linea lleva el correlationId de la solicitud o del proceso en curso (MDC, add-trazabilidad).
+    level: "%5p [%X{correlationId:-}]"
+
 springdoc:
   api-docs:
     path: /v3/api-docs

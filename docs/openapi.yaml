@@ -20,7 +20,7 @@ info:
     que `/api/eventos/**`.
 
     **Identidad (Entrega 1, sin JWT):** el usuario se identifica con los headers `X-User-Id` y `X-User-Rol`
-    (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `ACCESO`). En la Entrega 2 se reemplazan por JWT.
+    (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `PERSONAL_ACCESO`). En la Entrega 2 se reemplazan por JWT.
 
     **Idempotencia:** `POST /compras` exige el header `Idempotency-Key`.
 
@@ -1488,7 +1488,7 @@ components:
       description: Rol del usuario (Entrega 1, sin JWT)
       schema:
         type: string
-        enum: [CLIENTE, ORGANIZADOR, ADMIN, ACCESO]
+        enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
       example: CLIENTE
     IdempotencyKey:
       name: Idempotency-Key

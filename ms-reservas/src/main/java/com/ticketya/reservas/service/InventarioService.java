@@ -12,6 +12,10 @@ import com.ticketya.reservas.repository.AsientoRepository;
 import com.ticketya.reservas.repository.InventarioEventoRepository;
 import com.ticketya.reservas.repository.InventarioSectorRepository;
 import com.ticketya.reservas.repository.ReservaRepository;
+import com.ticketya.reservas.model.Reserva;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones.MotivoLiberacion;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones.Operacion;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -38,6 +42,7 @@ public class InventarioService {
     private final AvisoAgotadoService avisoAgotadoService;
     private final int maxPorClienteDefault;
     private final TransactionTemplate transaccion;
+    private final RegistroOperaciones registro;
 
     public InventarioService(InventarioEventoRepository inventarioEventoRepository,
                              InventarioSectorRepository inventarioSectorRepository,
@@ -45,8 +50,10 @@ public class InventarioService {
                              ReservaRepository reservaRepository,
                              AvisoAgotadoService avisoAgotadoService,
                              PlatformTransactionManager transactionManager,
+                             RegistroOperaciones registro,
                              @Value("${ticketya.reserva.max-por-cliente-default:4}") int maxPorClienteDefault) {
         this.transaccion = new TransactionTemplate(transactionManager);
+        this.registro = registro;
         this.inventarioEventoRepository = inventarioEventoRepository;
         this.inventarioSectorRepository = inventarioSectorRepository;
         this.asientoRepository = asientoRepository;
@@ -138,6 +145,16 @@ public class InventarioService {
         reservaRepository.liberar(pendientes);
         asientoRepository.liberarDeReservas(pendientes);
         inventarioSectorRepository.devolverCupoDeReservas(pendientes);
+        // Una linea por reserva liberada, escrita despues del commit del cierre.
+        for (Reserva r : reservaRepository.findAllById(pendientes)) {
+            registro.registrar(Operacion.RESERVA_LIBERADA, RegistroOperaciones.datos(
+                    "reservaId", r.getId(),
+                    "eventoId", r.getEventoId(),
+                    "sectorId", r.getSectorId(),
+                    "clienteId", r.getClienteId(),
+                    "cantidad", r.getCantidad(),
+                    "motivo", MotivoLiberacion.CIERRE_INVENTARIO));
+        }
     }
 
     /**

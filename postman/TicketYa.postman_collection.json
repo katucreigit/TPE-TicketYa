@@ -178,14 +178,14 @@
           }
         },
         {
-          "name": "Registrar ACCESO",
+          "name": "Registrar PERSONAL_ACCESO",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Registro ACCESO: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                  "pm.test('Registro PERSONAL_ACCESO: 201 o 409 si ya existe', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
                 ]
               }
             }
@@ -410,14 +410,14 @@
           }
         },
         {
-          "name": "Login ACCESO (guarda tokenAcceso)",
+          "name": "Login PERSONAL_ACCESO (guarda tokenAcceso)",
           "event": [
             {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Login ACCESO: 200 con token', () => {",
+                  "pm.test('Login PERSONAL_ACCESO: 200 con token', () => {",
                   "  pm.response.to.have.status(200);",
                   "  pm.expect(pm.response.json().token).to.be.a('string').and.not.empty;",
                   "});",

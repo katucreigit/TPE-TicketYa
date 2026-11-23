@@ -19,7 +19,7 @@ class IdentidadTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"ORGANIZADOR", "ADMIN", "ACCESO", "cliente", "OTRO"})
+    @ValueSource(strings = {"ORGANIZADOR", "ADMIN", "PERSONAL_ACCESO", "cliente", "OTRO"})
     void otroRolEs403AccesoDenegado(String rol) {
         ApiException ex = catchThrowableOfType(ApiException.class, () -> Identidad.cliente("101", rol));
 

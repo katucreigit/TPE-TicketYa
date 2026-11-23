@@ -17,6 +17,9 @@ import com.ticketya.reservas.repository.InventarioSectorRepository;
 import com.ticketya.reservas.repository.ReservaItemRepository;
 import com.ticketya.reservas.repository.ReservaRepository;
 import com.ticketya.reservas.repository.projection.InventarioReservaView;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones.MotivoLiberacion;
+import com.ticketya.reservas.trazabilidad.RegistroOperaciones.Operacion;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -27,6 +30,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+
+import static com.ticketya.reservas.trazabilidad.RegistroOperaciones.datos;
 
 /**
  * Reservas temporales: creacion, consulta, cancelacion, confirmacion, liberacion, devolucion y vencimiento.
@@ -53,6 +58,7 @@ public class ReservaService {
     private final int minutosExpiracion;
     private final int loteVencimiento;
     private final TransactionTemplate transaccion;
+    private final RegistroOperaciones registro;
 
     public ReservaService(ReservaRepository reservaRepository,
                           ReservaItemRepository reservaItemRepository,
@@ -61,9 +67,11 @@ public class ReservaService {
                           InventarioSectorRepository inventarioSectorRepository,
                           AvisoAgotadoService avisoAgotadoService,
                           PlatformTransactionManager transactionManager,
+                          RegistroOperaciones registro,
                           @Value("${ticketya.reserva.minutos-expiracion:10}") int minutosExpiracion,
                           @Value("${ticketya.jobs.lote-vencimiento:100}") int loteVencimiento) {
         this.transaccion = new TransactionTemplate(transactionManager);
+        this.registro = registro;
         this.reservaRepository = reservaRepository;
         this.reservaItemRepository = reservaItemRepository;
         this.asientoRepository = asientoRepository;
@@ -84,6 +92,14 @@ public class ReservaService {
      */
     public ReservaResponse crear(String clienteId, ReservaRequest request) {
         ReservaResponse respuesta = transaccion.execute(s -> crearEnTransaccion(clienteId, request));
+        registro.registrar(Operacion.RESERVA_CREADA, datos(
+                "reservaId", respuesta.reservaId(),
+                "eventoId", respuesta.eventoId(),
+                "sectorId", respuesta.sectorId(),
+                "clienteId", respuesta.clienteId(),
+                "cantidad", respuesta.cantidad(),
+                "asientos", asientos(respuesta.items()),
+                "expiraEn", respuesta.expiraEn()));
         avisoAgotadoService.evaluarDespuesDelCommit(request.eventoId());
         return respuesta;
     }
@@ -200,11 +216,12 @@ public class ReservaService {
      * modifica nada (204). CONFIRMADA responde 409 RESERVA_CONFIRMADA.
      */
     public void cancelar(String clienteId, UUID id) {
-        Long eventoAfectado = transaccion.execute(s -> {
+        Reserva liberada = transaccion.execute(s -> {
             Reserva reserva = buscarDelCliente(clienteId, id);
-            return liberarPendienteOFallarSiConfirmada(reserva);
+            return liberarPendienteOFallarSiConfirmada(reserva) != null ? reserva : null;
         });
-        avisarSiCambio(eventoAfectado);
+        registrarLiberada(liberada, MotivoLiberacion.CANCELACION_CLIENTE);
+        avisarSiCambio(liberada == null ? null : liberada.getEventoId());
     }
 
     private Reserva buscarDelCliente(String clienteId, UUID id) {
@@ -226,6 +243,13 @@ public class ReservaService {
     public void confirmar(UUID id) {
         if (reservaRepository.confirmar(id) == 1) {
             asientoRepository.venderDeReserva(id);
+            // Se escribe despues del commit: si la transaccion se revierte, no queda registrada.
+            reservaRepository.findById(id).ifPresent(r -> registro.registrar(Operacion.RESERVA_CONFIRMADA, datos(
+                    "reservaId", id,
+                    "eventoId", r.getEventoId(),
+                    "sectorId", r.getSectorId(),
+                    "clienteId", r.getClienteId(),
+                    "cantidad", r.getCantidad())));
             return;
         }
         switch (estadoActual(id)) {
@@ -243,12 +267,13 @@ public class ReservaService {
      * responde 200 sin cambios; CONFIRMADA, 409.
      */
     public void liberar(UUID id) {
-        Long eventoAfectado = transaccion.execute(s -> {
+        Reserva liberada = transaccion.execute(s -> {
             Reserva reserva = reservaRepository.findById(id)
                     .orElseThrow(() -> CodigoError.noEncontrado("La reserva " + id + " no existe"));
-            return liberarPendienteOFallarSiConfirmada(reserva);
+            return liberarPendienteOFallarSiConfirmada(reserva) != null ? reserva : null;
         });
-        avisarSiCambio(eventoAfectado);
+        registrarLiberada(liberada, MotivoLiberacion.COMPENSACION);
+        avisarSiCambio(liberada == null ? null : liberada.getEventoId());
     }
 
     /**
@@ -271,11 +296,26 @@ public class ReservaService {
      * No numerados: se suma al cupo y se descuenta de la reserva sin superar lo comprado.
      */
     public void devolver(UUID id, DevolucionRequest request) {
-        avisarSiCambio(transaccion.execute(s -> devolverEnTransaccion(id, request)));
+        Devolucion devolucion = transaccion.execute(s -> devolverEnTransaccion(id, request));
+        if (devolucion != null) {
+            Reserva r = devolucion.reserva();
+            registro.registrar(Operacion.RESERVA_DEVUELTA, datos(
+                    "reservaId", id,
+                    "eventoId", r.getEventoId(),
+                    "sectorId", r.getSectorId(),
+                    "clienteId", r.getClienteId(),
+                    "cantidad", devolucion.unidades(),
+                    "asientos", asientos(devolucion.asientos())));
+        }
+        avisarSiCambio(devolucion == null ? null : devolucion.reserva().getEventoId());
     }
 
-    /** Devuelve el evento afectado si se libero algun lugar, o null si fue una repeticion sin cambios. */
-    private Long devolverEnTransaccion(UUID id, DevolucionRequest request) {
+    /** Lugares que una devolucion libero de verdad (sin contar los ya devueltos antes). */
+    private record Devolucion(Reserva reserva, int unidades, List<AsientoRef> asientos) {
+    }
+
+    /** Devuelve lo que se libero, o null si fue una repeticion sin cambios. */
+    private Devolucion devolverEnTransaccion(UUID id, DevolucionRequest request) {
         // Lock de la reserva: serializa devoluciones simultaneas sobre la misma reserva.
         EstadoReserva estado = reservaRepository.bloquearEstado(id)
                 .map(EstadoReserva::valueOf)
@@ -297,17 +337,21 @@ public class ReservaService {
         }
         ReglasReserva.validarTipoDeSector(tipo, conItems);
 
-        boolean cambio = conItems
-                ? devolverAsientos(reserva, request.items())
-                : devolverCupo(reserva, request.cantidad());
-        return cambio ? reserva.getEventoId() : null;
+        if (conItems) {
+            List<AsientoRef> devueltos = devolverAsientos(reserva, request.items());
+            return devueltos.isEmpty() ? null : new Devolucion(reserva, devueltos.size(), devueltos);
+        }
+        devolverCupo(reserva, request.cantidad());
+        return new Devolucion(reserva, request.cantidad(), List.of());
     }
 
-    private boolean devolverAsientos(Reserva reserva, List<AsientoRef> items) {
+    /** Devuelve los asientos que se liberaron en esta llamada (vacia si todos ya estaban devueltos). */
+    private List<AsientoRef> devolverAsientos(Reserva reserva, List<AsientoRef> items) {
         ReglasReserva.validarSinRepetidos(items, "items");
         UUID id = reserva.getId();
         List<AsientoRef> ordenados = ReglasReserva.ordenados(items);
         List<String> ajenos = new ArrayList<>();
+        List<AsientoRef> liberados = new ArrayList<>();
         int devueltos = 0;
         for (AsientoRef a : ordenados) {
             Long asientoId = asientoRepository
@@ -321,6 +365,7 @@ public class ReservaService {
                             + " no figura vendido para la reserva");
                 }
                 devueltos++;
+                liberados.add(a);
             } else if (!reservaItemRepository.asientoPerteneceAReserva(id, asientoId)) {
                 ajenos.add(CodigoError.asiento(a.fila(), a.numero()));
             }
@@ -333,10 +378,10 @@ public class ReservaService {
         if (devueltos > 0 && reservaRepository.descontarCantidad(id, devueltos) == 0) {
             throw CodigoError.estadoInvalido("La devolucion supera lo comprado en la reserva");
         }
-        return devueltos > 0;
+        return liberados;
     }
 
-    private boolean devolverCupo(Reserva reserva, int cantidad) {
+    private void devolverCupo(Reserva reserva, int cantidad) {
         ReglasReserva.validarCantidad(cantidad);
         UUID id = reserva.getId();
         if (reservaRepository.descontarCantidad(id, cantidad) == 0
@@ -346,7 +391,6 @@ public class ReservaService {
         if (inventarioSectorRepository.sumarCupo(reserva.getEventoId(), reserva.getSectorId(), cantidad) == 0) {
             throw CodigoError.estadoInvalido("La devolucion superaria la capacidad del sector");
         }
-        return true;
     }
 
     // ------------------------------------------------------------------ vencimiento
@@ -369,6 +413,15 @@ public class ReservaService {
         }
         asientoRepository.liberarDeReservas(ids);
         inventarioSectorRepository.devolverCupoDeReservas(ids);
+        // Una linea por reserva, escrita despues del commit del lote.
+        for (Reserva r : reservaRepository.findAllById(ids)) {
+            registro.registrar(Operacion.RESERVA_VENCIDA, datos(
+                    "reservaId", r.getId(),
+                    "eventoId", r.getEventoId(),
+                    "sectorId", r.getSectorId(),
+                    "clienteId", r.getClienteId(),
+                    "cantidad", r.getCantidad()));
+        }
         return ids.size() == loteVencimiento;
     }
 
@@ -383,6 +436,28 @@ public class ReservaService {
         asientoRepository.liberarDeReservas(ids);
         inventarioSectorRepository.devolverCupoDeReservas(ids);
         return true;
+    }
+
+    /** Registra una liberacion que efectivamente cambio la reserva (null = repeticion sin cambios). */
+    private void registrarLiberada(Reserva reserva, MotivoLiberacion motivo) {
+        if (reserva == null) {
+            return;
+        }
+        registro.registrar(Operacion.RESERVA_LIBERADA, datos(
+                "reservaId", reserva.getId(),
+                "eventoId", reserva.getEventoId(),
+                "sectorId", reserva.getSectorId(),
+                "clienteId", reserva.getClienteId(),
+                "cantidad", reserva.getCantidad(),
+                "motivo", motivo));
+    }
+
+    /** Asientos en el formato del contrato (F3-N10,F3-N11), o null en sectores no numerados. */
+    private static String asientos(List<AsientoRef> items) {
+        if (items == null || items.isEmpty()) {
+            return null;
+        }
+        return String.join(",", items.stream().map(a -> CodigoError.asiento(a.fila(), a.numero())).toList());
     }
 
     /** Se llama fuera de la transaccion de la operacion, ya sin conexion retenida. */

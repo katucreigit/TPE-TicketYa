@@ -17,53 +17,7 @@ interface Evento {
   selector: 'app-my-events',
   standalone: true,
   imports: [CommonModule, RouterLink],
-  template: `
-    <div class="page">
-      <h3 class="mb-4">Mis Eventos</h3>
-
-      @if (loading) {
-        <div class="text-center py-5"><div class="spinner-border text-primary"></div></div>
-      } @else if (eventos.length === 0) {
-        <p class="text-center text-muted py-5">No tenés eventos creados.</p>
-      } @else {
-        <div class="table-responsive">
-          <table class="table table-hover align-middle">
-            <thead class="table-light">
-              <tr>
-                <th>Nombre</th>
-                <th>Tipo</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (ev of eventos; track ev.id) {
-                <tr>
-                  <td class="fw-semibold">{{ ev.nombre }}</td>
-                  <td class="text-muted small">{{ ev.tipo }}</td>
-                  <td class="small">{{ ev.fechaHora | date:'dd/MM/yyyy HH:mm' }}</td>
-                  <td>
-                    <span class="badge bg-success"
-                          [class.bg-danger]="ev.estado === 'AGOTADO' || ev.estado === 'CANCELADO'"
-                          [class.bg-secondary]="ev.estado === 'SUSPENDIDO' || ev.estado === 'FINALIZADO'"
-                          [class.bg-info]="ev.estado === 'BORRADOR'">
-                      {{ ev.estado }}
-                    </span>
-                  </td>
-                  <td>
-                    <a [routerLink]="['/events', ev.id]" class="btn btn-outline-secondary btn-sm">
-                      Ver detalle
-                    </a>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        </div>
-      }
-    </div>
-  `
+  templateUrl: './my-events.component.html'
 })
 export class MyEventsComponent implements OnInit {
   private http = inject(HttpClient);
@@ -75,12 +29,11 @@ export class MyEventsComponent implements OnInit {
   ngOnInit() {
     const organizadorId = this.auth.user()?.userId;
     this.http.get<{ content: Evento[] }>(
-      `http://localhost:8080/api/eventos`,
+      'http://localhost:8080/api/eventos',
       { params: { organizadorId: String(organizadorId), page: '0', size: '50' } }
     ).subscribe({
       next:  r  => { this.eventos = r.content; this.loading = false; },
       error: () => { this.loading = false; }
     });
   }
-
 }

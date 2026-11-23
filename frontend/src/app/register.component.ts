@@ -20,13 +20,6 @@ import { AuthService } from './auth.service';
             <label class="form-label">Contraseña</label>
             <input class="form-control" type="password" [(ngModel)]="password">
           </div>
-          <div class="mb-3">
-            <label class="form-label">Rol</label>
-            <select class="form-select" [(ngModel)]="rol">
-              <option value="CLIENTE">Cliente</option>
-              <option value="ORGANIZADOR">Organizador</option>
-            </select>
-          </div>
           @if (error) {
             <div class="alert alert-danger py-2 small">{{ error }}</div>
           }
@@ -52,7 +45,7 @@ export class RegisterComponent {
 
   email    = '';
   password = '';
-  rol      = 'CLIENTE';
+  readonly rol = 'CLIENTE';
   loading  = false;
   error    = '';
   ok       = false;

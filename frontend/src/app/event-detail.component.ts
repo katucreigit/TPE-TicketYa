@@ -38,7 +38,11 @@ interface Sector {
           <div class="col-md-8">
             <h3>{{ evento.nombre }}</h3>
             <p>
-              <span class="badge bg-success">{{ evento.estado }}</span>
+              <span class="badge bg-success"
+                    [class.bg-danger]="evento.estado === 'AGOTADO' || evento.estado === 'CANCELADO'"
+                    [class.bg-secondary]="evento.estado === 'SUSPENDIDO' || evento.estado === 'FINALIZADO'">
+                {{ evento.estado }}
+              </span>
               <span class="ms-2 text-muted">{{ evento.tipo }}</span>
             </p>
             <p>Fecha: {{ evento.fechaHora | date:'dd/MM/yyyy HH:mm' }}</p>

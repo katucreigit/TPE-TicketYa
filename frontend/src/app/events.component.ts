@@ -53,7 +53,11 @@ interface Evento {
                   @if (ev.ciudad) {
                     <p class="small text-muted mb-1">{{ ev.ciudad }}</p>
                   }
-                  <span class="badge bg-success">{{ ev.estado }}</span>
+                  <span class="badge bg-success"
+                        [class.bg-danger]="ev.estado === 'AGOTADO' || ev.estado === 'CANCELADO'"
+                        [class.bg-secondary]="ev.estado === 'SUSPENDIDO' || ev.estado === 'FINALIZADO'">
+                    {{ ev.estado }}
+                  </span>
                   <span class="ms-2 small text-muted">{{ ev.tipo }}</span>
                 </div>
                 @if (ev.precioDesde != null) {
@@ -91,4 +95,5 @@ export class EventsComponent implements OnInit {
         error: () => { this.loading = false; }
       });
   }
+
 }

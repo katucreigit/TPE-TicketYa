@@ -24,6 +24,11 @@ import { AuthService } from './auth.service';
                 <a class="nav-link" routerLink="/my-tickets" routerLinkActive="fw-bold">Mis Entradas</a>
               </li>
             }
+            @if (auth.isAuth() && auth.hasRol('ORGANIZADOR')) {
+              <li class="nav-item">
+                <a class="nav-link" routerLink="/my-events" routerLinkActive="fw-bold">Mis Eventos</a>
+              </li>
+            }
           </ul>
           <ul class="navbar-nav">
             @if (auth.isAuth()) {

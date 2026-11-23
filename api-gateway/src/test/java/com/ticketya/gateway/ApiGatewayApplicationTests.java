@@ -22,7 +22,7 @@ class ApiGatewayApplicationTests {
         assertThat(routeLocator).isNotNull();
     }
 
-    // Son 7 rutas: en la Entrega 2 se sumó "auth" (/api/auth/** hacia ms-auth) al incorporar JWT,
+    // Son 9 rutas: en la Entrega 2 se sumó "auth" (/api/auth/** hacia ms-auth) al incorporar JWT,
     // "fila" (/api/fila/** hacia ms-fila) con add-fila-virtual y "recomendaciones" (/api/preferencias/** y
     // /api/recomendaciones/** hacia ms-recomendaciones) con add-preferencias-recomendaciones.
     @Test
@@ -31,7 +31,7 @@ class ApiGatewayApplicationTests {
                 .collectList()
                 .block();
 
-        assertThat(rutas).hasSize(8);
+        assertThat(rutas).hasSize(9);
 
         assertThat(rutas)
                 .extracting(Route::getId)
@@ -41,6 +41,7 @@ class ApiGatewayApplicationTests {
                         "recomendaciones",
                         "reservas-disponibilidad",
                         "reservas",
+                        "reporte-ventas",
                         "eventos",
                         "ventas",
                         "notificaciones"

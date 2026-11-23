@@ -45,6 +45,97 @@ class JwtAuthFilterTest {
     }
 
     @Test
+    void usuariosAuthSinTokenDevuelve401() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/auth/usuarios").build()
+        );
+
+        ejecutar(exchange);
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void loginYRegistroSinTokenPermitenContinuar() {
+        for (String path : new String[]{"/api/auth/login", "/api/auth/register"}) {
+            MockServerWebExchange exchange = MockServerWebExchange.from(
+                    MockServerHttpRequest.post(path).build()
+            );
+            AtomicReference<ServerWebExchange> recibido = new AtomicReference<>();
+
+            jwtAuthFilter.filter(exchange, exchangeMutado -> {
+                recibido.set(exchangeMutado);
+                return Mono.empty();
+            }).block();
+
+            assertThat(recibido.get()).as(path).isNotNull();
+        }
+    }
+
+    @Test
+    void reporteVentasSinTokenDevuelve401() {
+        MockServerWebExchange exchange = crearSolicitudReporteVentas();
+
+        ejecutar(exchange);
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void reporteVentasConRolClienteDevuelve403() {
+        MockServerWebExchange exchange = crearSolicitudReporteVentasConToken(
+                generarToken("123", "CLIENTE", 60000)
+        );
+
+        ejecutar(exchange);
+
+        assertThat(exchange.getResponse().getStatusCode())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void reporteVentasConRolOrganizadorPermiteContinuar() {
+        verificarAccesoReporteVentas("ORGANIZADOR");
+    }
+
+    @Test
+    void reporteVentasConRolAdminPermiteContinuar() {
+        verificarAccesoReporteVentas("ADMIN");
+    }
+
+    private void verificarAccesoReporteVentas(String rol) {
+        MockServerWebExchange exchange = crearSolicitudReporteVentasConToken(
+                generarToken("123", rol, 60000)
+        );
+        AtomicReference<ServerWebExchange> recibido = new AtomicReference<>();
+
+        jwtAuthFilter.filter(exchange, exchangeMutado -> {
+            recibido.set(exchangeMutado);
+            return Mono.empty();
+        }).block();
+
+        assertThat(recibido.get()).isNotNull();
+        assertThat(recibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Rol")).isEqualTo(rol);
+    }
+
+    private MockServerWebExchange crearSolicitudReporteVentas() {
+        return MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos/123/reporte-ventas").build()
+        );
+    }
+
+    private MockServerWebExchange crearSolicitudReporteVentasConToken(String token) {
+        return MockServerWebExchange.from(
+                MockServerHttpRequest.get("/api/eventos/123/reporte-ventas")
+                        .header("Authorization", "Bearer " + token)
+                        .build()
+        );
+    }
+
+    @Test
     void tokenInvalidoDevuelve401() {
         MockServerWebExchange exchange = MockServerWebExchange.from(
                 MockServerHttpRequest.post("/api/reservas")

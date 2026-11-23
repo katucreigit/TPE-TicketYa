@@ -90,6 +90,20 @@ spring:
                     name: reservas
                     fallbackUri: forward:/fallback/reservas
 
+            # Reporte de ventas por evento (US-29).
+            - id: reporte-ventas
+              uri: ${MS_VENTAS_URL:http://localhost:8083}
+              order: 1
+              predicates:
+                - Path=/api/eventos/*/reporte-ventas
+              filters:
+                - StripPrefix=1
+                - RewritePath=/eventos/(?<eventoId>[0-9]+)/reporte-ventas, /internal/eventos/$\{eventoId}/reporte-ventas
+                - name: CircuitBreaker
+                  args:
+                    name: ventas
+                    fallbackUri: forward:/fallback/ventas
+
             - id: eventos
               uri: ${MS_EVENTOS_URL:http://localhost:8081}
               order: 2

@@ -44,7 +44,7 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
 
         // Las rutas de autenticacion son publicas y no necesitan identidad previa.
-        if (esRutaAuth(path)) {
+        if (esRutaAuth(path, method)) {
             return chain.filter(exchange);
         }
 
@@ -73,6 +73,12 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             if (userId == null || userId.isBlank()
                     || rol == null || !ROLES_VALIDOS.contains(rol)) {
                 return responderNoAutorizado(exchange);
+            }
+
+            // El reporte de ventas solo puede ser consultado por ORGANIZADOR y ADMIN.
+            if (esRutaReporteVentas(path, method)
+                    && !Set.of("ORGANIZADOR", "ADMIN").contains(rol)) {
+                return responderProhibido(exchange);
             }
 
             // Reemplaza los headers del cliente por los datos confiables del token.
@@ -106,12 +112,24 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         return exchange.getResponse().setComplete();
     }
 
-    private boolean esRutaAuth(String path) {
-        return path.equals("/api/auth") || path.startsWith("/api/auth/");
+    private boolean esRutaAuth(String path, HttpMethod method) {
+        return method == HttpMethod.POST
+                && (path.equals("/api/auth/login")
+                || path.equals("/api/auth/register"));
+    }
+
+    private boolean esRutaReporteVentas(String path, HttpMethod method) {
+        return method == HttpMethod.GET
+                && path.matches("/api/eventos/[0-9]+/reporte-ventas");
+    }
+
+    private Mono<Void> responderProhibido(ServerWebExchange exchange) {
+        exchange.getResponse().setStatusCode(HttpStatus.FORBIDDEN);
+        return exchange.getResponse().setComplete();
     }
 
     private boolean esPublica(String path, HttpMethod method) {
-        if (method != HttpMethod.GET) {
+        if (method != HttpMethod.GET || esRutaReporteVentas(path, method)) {
             return false;
         }
 

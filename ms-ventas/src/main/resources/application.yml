@@ -20,6 +20,11 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
+logging:
+  pattern:
+    # Cada linea lleva el correlationId de la solicitud o del proceso en curso (MDC, add-trazabilidad).
+    level: "%5p [%X{correlationId:-}]"
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -27,6 +32,14 @@ springdoc:
     path: /swagger-ui.html
 
 ticketya:
+  jobs:
+    habilitados: true
+  pagos:
+    max-reintentos: 2
+    reconciliacion:
+      intervalo-ms: 30000
+    pasarela:
+      consultas-inciertas-timeout: 2
   devolucion:
     horas-minimas-antes-del-evento: 72
     # Las fechas de los eventos son hora local sin offset: el plazo se mide en esta zona.
@@ -34,3 +47,7 @@ ticketya:
   services:
     eventos-url: ${MS_EVENTOS_URL:http://localhost:8081}
     reservas-url: ${MS_RESERVAS_URL:http://localhost:8082}
+    notificaciones-url: ${MS_NOTIFICACIONES_URL:http://localhost:8085}
+    notificaciones-connect-timeout-ms: 1000
+    notificaciones-read-timeout-ms: 2000
+    notificaciones-email-dominio: ticketya.local

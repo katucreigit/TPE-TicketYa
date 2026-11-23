@@ -1,0 +1,4 @@
+ticketya:
+  jobs:
+    # Los tests invocan los metodos del job directamente en lugar de esperar al scheduler.
+    habilitados: false

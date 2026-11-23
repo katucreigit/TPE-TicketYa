@@ -1,6 +1,11 @@
 package com.ticketya.ventas.service;
 
+import com.ticketya.ventas.client.NotificacionesClient;
+import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
 import com.ticketya.ventas.dto.CancelacionEventoResponse;
+import org.springframework.http.HttpStatus;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 import com.ticketya.ventas.exception.BadGatewayException;
 import com.ticketya.ventas.model.Compra;
 import com.ticketya.ventas.model.Entrada;
@@ -34,6 +39,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 /**
  * Spec cancelacion-evento-reintegros: reintegro masivo, idempotencia y fallas parciales.
@@ -50,6 +56,8 @@ class CancelacionEventoServiceTest {
     private EntradaRepository entradaRepository;
     private ReintegroRepository reintegroRepository;
     private PasarelaPagoService pasarela;
+    private NotificacionesClient notificacionesClient;
+    private TransactionTemplate tx;
     private CancelacionEventoService servicio;
 
     @BeforeEach
@@ -59,12 +67,25 @@ class CancelacionEventoServiceTest {
         entradaRepository = mock(EntradaRepository.class);
         reintegroRepository = mock(ReintegroRepository.class);
         pasarela = spy(new PasarelaPagoService());
+        notificacionesClient = mock(NotificacionesClient.class);
 
-        when(entradaRepository.bloquearPorEventoYEstado(anyLong(), any(EstadoEntrada.class))).thenAnswer(inv ->
+        when(entradaRepository.findByEventoIdAndEstadoOrderById(anyLong(), any(EstadoEntrada.class))).thenAnswer(inv ->
                 entradas.stream()
                         .filter(e -> e.getEventoId().equals(inv.getArgument(0)) && e.getEstado() == inv.getArgument(1))
                         .sorted(Comparator.comparing(Entrada::getId))
                         .toList());
+        when(entradaRepository.findById(any(UUID.class))).thenAnswer(inv ->
+                entradas.stream().filter(e -> e.getId().equals(inv.getArgument(0))).findFirst());
+        when(entradaRepository.transicionarDesdeEmitida(any(UUID.class), any(EstadoEntrada.class))).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            EstadoEntrada nuevo = inv.getArgument(1);
+            Entrada e = entradas.stream().filter(x -> x.getId().equals(id)).findFirst().orElse(null);
+            if (e != null && e.getEstado() == EstadoEntrada.EMITIDA) {
+                e.setEstado(nuevo);
+                return 1;
+            }
+            return 0;
+        });
         when(entradaRepository.saveAndFlush(any(Entrada.class))).thenAnswer(inv -> inv.getArgument(0));
 
         when(reintegroRepository.saveAndFlush(any(Reintegro.class))).thenAnswer(inv -> {
@@ -88,19 +109,28 @@ class CancelacionEventoServiceTest {
                         .findFirst());
         when(reintegroRepository.buscarPorEvento(anyLong(), any(TipoReintegro.class), any(EstadoReintegro.class)))
                 .thenAnswer(inv -> reintegrosDe(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2)));
+        when(reintegroRepository.buscarTodosPorEvento(anyLong(), any(TipoReintegro.class)))
+                .thenAnswer(inv -> reintegros.values().stream()
+                        .filter(r -> r.getEntrada().getEventoId().equals(inv.getArgument(0))
+                                && r.getTipo() == inv.getArgument(1))
+                        .sorted(Comparator.comparing((Reintegro r) -> r.getEntrada().getCompra().getClienteId())
+                                .thenComparing(r -> r.getEntrada().getCompra().getId())
+                                .thenComparing(Reintegro::getId))
+                        .toList());
         when(reintegroRepository.countByEntradaEventoIdAndTipoAndEstado(anyLong(), any(TipoReintegro.class),
                 any(EstadoReintegro.class)))
                 .thenAnswer(inv -> (long) reintegrosDe(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2)).size());
         when(reintegroRepository.bloquear(any(UUID.class)))
                 .thenAnswer(inv -> Optional.ofNullable(reintegros.get(inv.<UUID>getArgument(0))));
 
-        TransactionTemplate tx = new TransactionTemplate() {
+        tx = new TransactionTemplate() {
             @Override
             public <T> T execute(TransactionCallback<T> action) {
                 return action.doInTransaction(new SimpleTransactionStatus());
             }
         };
-        servicio = new CancelacionEventoService(entradaRepository, reintegroRepository, pasarela, tx);
+        servicio = new CancelacionEventoService(entradaRepository, reintegroRepository, pasarela,
+                notificacionesClient, tx);
     }
 
     private List<Reintegro> reintegrosDe(Long eventoId, TipoReintegro tipo, EstadoReintegro estado) {
@@ -112,9 +142,14 @@ class CancelacionEventoServiceTest {
     }
 
     private Entrada entrada(Long eventoId, EstadoEntrada estado) {
+        return entradaParaCliente(eventoId, estado, "cli-100", null);
+    }
+
+    private Entrada entradaParaCliente(Long eventoId, EstadoEntrada estado, String clienteId, String clienteEmail) {
         Compra compra = new Compra();
         compra.setId(UUID.randomUUID());
-        compra.setClienteId("cli-100");
+        compra.setClienteId(clienteId);
+        compra.setClienteEmail(clienteEmail);
         compra.setEventoId(eventoId);
         Pago pago = new Pago();
         pago.setEstado(EstadoPago.APROBADO);
@@ -198,11 +233,31 @@ class CancelacionEventoServiceTest {
     }
 
     @Test
+    void omiteEntradaQueDejoDeEstarEmitidaAntesDelUpdateCondicional() {
+        Entrada ganadora = entrada(EVENTO_ID, EstadoEntrada.EMITIDA);
+        Entrada usadaEnSimultaneo = entrada(EVENTO_ID, EstadoEntrada.EMITIDA);
+        doAnswer(inv -> {
+            usadaEnSimultaneo.setEstado(EstadoEntrada.USADA);
+            return 0;
+        }).when(entradaRepository).transicionarDesdeEmitida(
+                usadaEnSimultaneo.getId(), EstadoEntrada.REINTEGRO_PENDIENTE);
+
+        CancelacionEventoResponse respuesta = servicio.procesar(EVENTO_ID);
+
+        assertEquals(new CancelacionEventoResponse(EVENTO_ID, 1, 1, 0), respuesta);
+        assertEquals(EstadoEntrada.REINTEGRADA, ganadora.getEstado());
+        assertEquals(EstadoEntrada.USADA, usadaEnSimultaneo.getEstado());
+        assertEquals(1, reintegros.size());
+        assertTrue(reintegros.values().stream().noneMatch(r -> r.getEntrada().getId().equals(usadaEnSimultaneo.getId())));
+    }
+
+    @Test
     void eventoSinVentasRespondeContadoresEnCero() {
         CancelacionEventoResponse respuesta = servicio.procesar(EVENTO_ID);
 
         assertEquals(new CancelacionEventoResponse(EVENTO_ID, 0, 0, 0), respuesta);
         verifyNoInteractions(pasarela);
+        verifyNoInteractions(notificacionesClient);
     }
 
     // ------------------------------------------------------------------ idempotencia
@@ -315,5 +370,77 @@ class CancelacionEventoServiceTest {
 
         assertEquals(new CancelacionEventoResponse(EVENTO_ID, 1, 0, 1), respuesta);
         assertEquals(EstadoEntrada.REINTEGRO_PENDIENTE, e.getEstado());
+    }
+
+    @Test
+    void notificaEventoCanceladoAgrupadoPorClienteYUsaMismaClaveAlRepetir() {
+        // cli-1 tiene dos compras distintas en el mismo evento (2 entradas en total)
+        entradaParaCliente(EVENTO_ID, EstadoEntrada.EMITIDA, "cli-1", "uno@example.com");
+        entradaParaCliente(EVENTO_ID, EstadoEntrada.EMITIDA, "cli-1", null);
+        // cli-2 tiene una compra sin email guardado
+        entradaParaCliente(EVENTO_ID, EstadoEntrada.EMITIDA, "cli-2", null);
+
+        CancelacionEventoResponse primera = servicio.procesar(EVENTO_ID);
+        assertEquals(new CancelacionEventoResponse(EVENTO_ID, 3, 3, 0), primera);
+
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.EVENTO_CANCELADO),
+                eq("cli-1"),
+                eq("uno@example.com"),
+                argThat(datos -> EVENTO_ID.equals(datos.get("eventoId"))
+                        && ((List<?>) datos.get("comprasIds")).size() == 2
+                        && Long.valueOf(2L).equals(datos.get("entradasAfectadas"))
+                        && Long.valueOf(2L).equals(datos.get("reintegrosCompletados"))
+                        && Long.valueOf(0L).equals(datos.get("reintegrosPendientes"))
+                        && new BigDecimal("90000.00").equals(datos.get("montoReintegrado"))),
+                eq("evento-cancelado-" + EVENTO_ID + "-cli-1")
+        );
+        verify(notificacionesClient).enviar(
+                eq(TipoNotificacion.EVENTO_CANCELADO),
+                eq("cli-2"),
+                isNull(),
+                argThat(datos -> Long.valueOf(1L).equals(datos.get("entradasAfectadas"))
+                        && new BigDecimal("45000.00").equals(datos.get("montoReintegrado"))),
+                eq("evento-cancelado-" + EVENTO_ID + "-cli-2")
+        );
+        verifyNoMoreInteractions(notificacionesClient);
+
+        // Repeticion de cancelacion vuelve a emitir con la misma clave determinista para deduplicacion
+        clearInvocations(notificacionesClient);
+        servicio.procesar(EVENTO_ID);
+
+        verify(notificacionesClient).enviar(eq(TipoNotificacion.EVENTO_CANCELADO), eq("cli-1"),
+                eq("uno@example.com"), anyMap(), eq("evento-cancelado-" + EVENTO_ID + "-cli-1"));
+        verify(notificacionesClient).enviar(eq(TipoNotificacion.EVENTO_CANCELADO), eq("cli-2"),
+                isNull(), anyMap(), eq("evento-cancelado-" + EVENTO_ID + "-cli-2"));
+    }
+
+    @Test
+    void falloAlNotificarUnCompradorNoImpideNotificarAlSiguienteNiAfectaReintegros() {
+        entradaParaCliente(EVENTO_ID, EstadoEntrada.EMITIDA, "cli-1", "uno@example.com");
+        entradaParaCliente(EVENTO_ID, EstadoEntrada.EMITIDA, "cli-2", "dos@example.com");
+
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://ms-notificaciones");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://ms-notificaciones/internal/notificaciones"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath(
+                        "$.destinatario.usuarioId").value("cli-1"))
+                .andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo(
+                        "http://ms-notificaciones/internal/notificaciones"))
+                .andExpect(org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath(
+                        "$.destinatario.usuarioId").value("cli-2"))
+                .andRespond(withStatus(HttpStatus.ACCEPTED));
+
+        CancelacionEventoService servicioConClienteReal = new CancelacionEventoService(
+                entradaRepository, reintegroRepository, pasarela,
+                new NotificacionesClient(builder.build(), "ticketya.local"), tx);
+
+        CancelacionEventoResponse respuesta = servicioConClienteReal.procesar(EVENTO_ID);
+
+        assertEquals(new CancelacionEventoResponse(EVENTO_ID, 2, 2, 0), respuesta);
+        assertTrue(entradas.stream().allMatch(e -> e.getEstado() == EstadoEntrada.REINTEGRADA));
+        server.verify();
     }
 }

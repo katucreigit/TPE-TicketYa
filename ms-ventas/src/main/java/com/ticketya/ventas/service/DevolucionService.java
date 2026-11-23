@@ -22,6 +22,10 @@ import com.ticketya.ventas.repository.DevolucionRepository;
 import com.ticketya.ventas.repository.EntradaRepository;
 import com.ticketya.ventas.repository.ReintegroRepository;
 import com.ticketya.ventas.service.PasarelaPagoService.ResultadoReembolso;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones;
+import com.ticketya.ventas.trazabilidad.RegistroOperaciones.Operacion;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -36,6 +40,8 @@ import java.time.ZoneId;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.ticketya.ventas.trazabilidad.RegistroOperaciones.datos;
 
 /**
  * Devoluciones de entradas (US-18 y US-19).
@@ -56,6 +62,7 @@ public class DevolucionService {
     private final ReservasClient reservasClient;
     private final PasarelaPagoService pasarelaPagoService;
     private final TransactionTemplate transaccion;
+    private final RegistroOperaciones registro;
     private final Clock clock;
     private final ZoneId zonaEventos;
     private final long horasMinimas;
@@ -68,15 +75,46 @@ public class DevolucionService {
                              PasarelaPagoService pasarelaPagoService,
                              TransactionTemplate transaccion,
                              Clock clock,
+                             ZoneId zonaEventos,
+                             long horasMinimas) {
+        this(devolucionRepository, entradaRepository, reintegroRepository, reservasClient,
+                pasarelaPagoService, transaccion, clock, zonaEventos, horasMinimas, new RegistroOperaciones());
+    }
+
+    @Autowired
+    public DevolucionService(DevolucionRepository devolucionRepository,
+                             EntradaRepository entradaRepository,
+                             ReintegroRepository reintegroRepository,
+                             ReservasClient reservasClient,
+                             PasarelaPagoService pasarelaPagoService,
+                             TransactionTemplate transaccion,
+                             Clock clock,
                              @Value("${ticketya.devolucion.zona-horaria-eventos:America/Argentina/Buenos_Aires}")
                              ZoneId zonaEventos,
-                             @Value("${ticketya.devolucion.horas-minimas-antes-del-evento:72}") long horasMinimas) {
+                             @Value("${ticketya.devolucion.horas-minimas-antes-del-evento:72}") long horasMinimas,
+                             ObjectProvider<RegistroOperaciones> registro) {
+        this(devolucionRepository, entradaRepository, reintegroRepository, reservasClient,
+                pasarelaPagoService, transaccion, clock, zonaEventos, horasMinimas,
+                registro.getIfAvailable(RegistroOperaciones::new));
+    }
+
+    public DevolucionService(DevolucionRepository devolucionRepository,
+                             EntradaRepository entradaRepository,
+                             ReintegroRepository reintegroRepository,
+                             ReservasClient reservasClient,
+                             PasarelaPagoService pasarelaPagoService,
+                             TransactionTemplate transaccion,
+                             Clock clock,
+                             ZoneId zonaEventos,
+                             long horasMinimas,
+                             RegistroOperaciones registro) {
         this.devolucionRepository = devolucionRepository;
         this.entradaRepository = entradaRepository;
         this.reintegroRepository = reintegroRepository;
         this.reservasClient = reservasClient;
         this.pasarelaPagoService = pasarelaPagoService;
         this.transaccion = transaccion;
+        this.registro = registro;
         this.clock = clock;
         this.zonaEventos = zonaEventos;
         this.horasMinimas = horasMinimas;
@@ -85,8 +123,8 @@ public class DevolucionService {
     // ------------------------------------------------------------------ solicitar
 
     /**
-     * Crea la devolucion SOLICITADA y pasa la entrada a DEVOLUCION_SOLICITADA. La entrada se bloquea
-     * (FOR UPDATE) para que dos solicitudes simultaneas no generen dos devoluciones en curso.
+     * Crea la devolucion SOLICITADA y pasa la entrada a DEVOLUCION_SOLICITADA mediante UPDATE condicional por
+     * estado EMITIDA para garantizar exclusion mutua frente a ingreso, cancelacion u otra devolucion.
      *
      * @throws NotFoundException      (404) la entrada no existe
      * @throws ForbiddenException     (403) la entrada es de otro cliente
@@ -95,22 +133,39 @@ public class DevolucionService {
      */
     public DevolucionResponse solicitar(String clienteId, DevolucionRequest request) {
         return transaccion.execute(status -> {
-            Entrada entrada = entradaRepository.bloquearConCompra(request.entradaId())
+            Entrada entrada = entradaRepository.findWithCompraById(request.entradaId())
                     .orElseThrow(() -> new NotFoundException("La entrada " + request.entradaId() + " no existe"));
+            UUID compraId = entrada.getCompra().getId();
             if (!entrada.getCompra().getClienteId().equals(clienteId)) {
                 throw new ForbiddenException();
             }
             validarDevolvible(entrada);
             validarPlazo(entrada);
 
+            int actualizadas = entradaRepository.transicionarDesdeEmitida(
+                    entrada.getId(), EstadoEntrada.DEVOLUCION_SOLICITADA);
+            if (actualizadas == 0) {
+                Entrada actualizada = entradaRepository.findById(entrada.getId())
+                        .orElseThrow(() -> new NotFoundException("La entrada " + request.entradaId() + " no existe"));
+                validarDevolvible(actualizada);
+                throw new ConflictException("ENTRADA_NO_DEVOLVIBLE", "La entrada ya no esta en estado EMITIDA");
+            }
+
+            Entrada entradaActualizada = entradaRepository.findById(entrada.getId()).orElseThrow();
             Devolucion devolucion = new Devolucion();
-            devolucion.setEntrada(entrada);
+            devolucion.setEntrada(entradaActualizada);
             devolucion.setEstado(EstadoDevolucion.SOLICITADA);
             devolucion.setMotivo(request.motivo());
             devolucion.setSolicitadaEn(LocalDateTime.now(clock));
-            entrada.setEstado(EstadoEntrada.DEVOLUCION_SOLICITADA);
-            entradaRepository.saveAndFlush(entrada);
-            return DevolucionResponse.from(devolucionRepository.saveAndFlush(devolucion));
+            Devolucion guardada = devolucionRepository.saveAndFlush(devolucion);
+            registro.registrar(Operacion.DEVOLUCION_SOLICITADA, datos(
+                    "devolucionId", guardada.getId(),
+                    "entradaId", entradaActualizada.getId(),
+                    "compraId", compraId,
+                    "eventoId", entradaActualizada.getEventoId(),
+                    "clienteId", clienteId,
+                    "monto", entradaActualizada.getPrecioUnitario()));
+            return DevolucionResponse.from(guardada);
         });
     }
 
@@ -272,6 +327,7 @@ public class DevolucionService {
 
     private DevolucionResponse completar(UUID id, UUID reintegroId, String transaccionReintegro) {
         Devolucion devolucion = devolucionRepository.bloquear(id).orElseThrow();
+        boolean yaReintegrada = devolucion.getEstado() == EstadoDevolucion.REINTEGRADA;
         Reintegro reintegro = reintegroRepository.findById(reintegroId).orElseThrow();
         if (reintegro.getEstado() != EstadoReintegro.COMPLETADO) {
             reintegro.setEstado(EstadoReintegro.COMPLETADO);
@@ -283,7 +339,19 @@ public class DevolucionService {
         Entrada entrada = devolucion.getEntrada();
         entrada.setEstado(EstadoEntrada.REINTEGRADA);
         entradaRepository.saveAndFlush(entrada);
-        return DevolucionResponse.from(devolucionRepository.saveAndFlush(devolucion));
+        Devolucion guardada = devolucionRepository.saveAndFlush(devolucion);
+        if (!yaReintegrada) {
+            registro.registrar(Operacion.DEVOLUCION_APROBADA, datos(
+                    "devolucionId", guardada.getId(),
+                    "reintegroId", reintegro.getId(),
+                    "entradaId", entrada.getId(),
+                    "compraId", entrada.getCompra().getId(),
+                    "eventoId", entrada.getEventoId(),
+                    "clienteId", entrada.getCompra().getClienteId(),
+                    "monto", reintegro.getMonto(),
+                    "transaccion", reintegro.getTransaccionPasarela()));
+        }
+        return DevolucionResponse.from(guardada);
     }
 
     // ------------------------------------------------------------------ rechazar
@@ -309,7 +377,14 @@ public class DevolucionService {
             Entrada entrada = devolucion.getEntrada();
             entrada.setEstado(EstadoEntrada.EMITIDA);
             entradaRepository.saveAndFlush(entrada);
-            return DevolucionResponse.from(devolucionRepository.saveAndFlush(devolucion));
+            Devolucion guardada = devolucionRepository.saveAndFlush(devolucion);
+            registro.registrar(Operacion.DEVOLUCION_RECHAZADA, datos(
+                    "devolucionId", guardada.getId(),
+                    "entradaId", entrada.getId(),
+                    "compraId", entrada.getCompra().getId(),
+                    "eventoId", entrada.getEventoId(),
+                    "clienteId", entrada.getCompra().getClienteId()));
+            return DevolucionResponse.from(guardada);
         });
     }
 

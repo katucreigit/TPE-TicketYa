@@ -27,6 +27,8 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -62,7 +64,7 @@ class CompraControllerTest {
                 List.of(new EntradaResponse(entradaId, 42L, 11L, 3, 10,
                         new BigDecimal("45000.00"), "9f3a6c52-47c1-4b0e-a7d9-3c5e8f1b2d64", EstadoEntrada.EMITIDA))
         );
-        when(compraService.crear(eq("cli-100"), eq("k-100"), any(CompraRequest.class)))
+        when(compraService.crear(eq("cli-100"), eq("k-100"), any(CompraRequest.class), isNull()))
                 .thenReturn(new ResultadoCompra(respuesta, false));
 
         mvc.perform(post("/compras")
@@ -91,7 +93,7 @@ class CompraControllerTest {
                 new MedioPagoResponse(TipoMedioPago.TARJETA_CREDITO, "4242"),
                 List.of()
         );
-        when(compraService.crear(eq("cli-100"), eq("k-100"), any(CompraRequest.class)))
+        when(compraService.crear(eq("cli-100"), eq("k-100"), any(CompraRequest.class), isNull()))
                 .thenReturn(new ResultadoCompra(respuesta, true));
 
         mvc.perform(post("/compras")
@@ -102,6 +104,45 @@ class CompraControllerTest {
                         .content(BODY_VALIDO))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.compraId").value(compraId.toString()));
+    }
+
+    @Test
+    void postCompraConXUserEmailValidoEInvalidoMantieneCompatibilidad() throws Exception {
+        UUID compraId = UUID.fromString("c0a8f7b2-1e44-4d0b-8a35-55e0b7d1f9aa");
+        CompraResponse respuesta = new CompraResponse(
+                compraId,
+                EstadoCompra.APROBADA,
+                new BigDecimal("45000.00"),
+                new MedioPagoResponse(TipoMedioPago.TARJETA_CREDITO, "4242"),
+                List.of()
+        );
+        when(compraService.crear(eq("cli-100"), eq("k-email-ok"), any(CompraRequest.class), eq("cliente@example.com")))
+                .thenReturn(new ResultadoCompra(respuesta, false));
+        when(compraService.crear(eq("cli-100"), eq("k-email-bad"), any(CompraRequest.class), isNull()))
+                .thenReturn(new ResultadoCompra(respuesta, false));
+
+        mvc.perform(post("/compras")
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE")
+                        .header("Idempotency-Key", "k-email-ok")
+                        .header("X-User-Email", "  cliente@example.com  ")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY_VALIDO))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.compraId").value(compraId.toString()));
+
+        mvc.perform(post("/compras")
+                        .header("X-User-Id", "cli-100")
+                        .header("X-User-Rol", "CLIENTE")
+                        .header("Idempotency-Key", "k-email-bad")
+                        .header("X-User-Email", "no-es-un-email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(BODY_VALIDO))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.compraId").value(compraId.toString()));
+
+        verify(compraService).crear(eq("cli-100"), eq("k-email-ok"), any(CompraRequest.class), eq("cliente@example.com"));
+        verify(compraService).crear(eq("cli-100"), eq("k-email-bad"), any(CompraRequest.class), isNull());
     }
 
     @Test

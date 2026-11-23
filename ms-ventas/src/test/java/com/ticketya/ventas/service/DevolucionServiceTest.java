@@ -76,7 +76,17 @@ class DevolucionServiceTest {
         pasarela = spy(new PasarelaPagoService());
 
         entrada = entradaDe("cli-100", 3, 10);
-        when(entradaRepository.bloquearConCompra(ENTRADA_ID)).thenAnswer(inv -> Optional.of(entrada));
+        when(entradaRepository.findWithCompraById(ENTRADA_ID)).thenAnswer(inv -> Optional.of(entrada));
+        when(entradaRepository.findById(ENTRADA_ID)).thenAnswer(inv -> Optional.of(entrada));
+        when(entradaRepository.transicionarDesdeEmitida(any(UUID.class), any(EstadoEntrada.class))).thenAnswer(inv -> {
+            UUID id = inv.getArgument(0);
+            EstadoEntrada nuevoEstado = inv.getArgument(1);
+            if (entrada.getId().equals(id) && entrada.getEstado() == EstadoEntrada.EMITIDA) {
+                entrada.setEstado(nuevoEstado);
+                return 1;
+            }
+            return 0;
+        });
         when(entradaRepository.saveAndFlush(any(Entrada.class))).thenAnswer(inv -> inv.getArgument(0));
 
         when(devolucionRepository.saveAndFlush(any(Devolucion.class))).thenAnswer(inv -> {
@@ -251,9 +261,23 @@ class DevolucionServiceTest {
     @Test
     void solicitarEntradaInexistenteResponde404() {
         DevolucionRequest otra = new DevolucionRequest(UUID.randomUUID(), null);
-        when(entradaRepository.bloquearConCompra(otra.entradaId())).thenReturn(Optional.empty());
+        when(entradaRepository.findWithCompraById(otra.entradaId())).thenReturn(Optional.empty());
 
         assertThrows(NotFoundException.class, () -> servicioEnPlazo().solicitar("cli-100", otra));
+    }
+
+    @Test
+    void siOtraOperacionCambiaElEstadoAntesDelUpdateRechazaCon409SinCrearDevolucion() {
+        doAnswer(inv -> {
+            entrada.setEstado(EstadoEntrada.USADA);
+            return 0;
+        }).when(entradaRepository).transicionarDesdeEmitida(ENTRADA_ID, EstadoEntrada.DEVOLUCION_SOLICITADA);
+
+        ConflictException ex = assertThrows(ConflictException.class,
+                () -> servicioEnPlazo().solicitar("cli-100", pedido()));
+
+        assertEquals("ENTRADA_NO_DEVOLVIBLE", ex.getCode());
+        assertTrue(devoluciones.isEmpty());
     }
 
     // ------------------------------------------------------------------ obtener

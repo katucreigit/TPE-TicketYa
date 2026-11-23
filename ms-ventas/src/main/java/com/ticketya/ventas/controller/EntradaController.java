@@ -3,10 +3,14 @@ package com.ticketya.ventas.controller;
 import com.ticketya.ventas.controller.Identidad.Solicitante;
 import com.ticketya.ventas.dto.EntradaResponse;
 import com.ticketya.ventas.dto.PageEntradaResponse;
+import com.ticketya.ventas.dto.ValidarEntradaRequest;
 import com.ticketya.ventas.model.enums.EstadoEntrada;
 import com.ticketya.ventas.service.EntradaService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -45,6 +49,15 @@ public class EntradaController {
             @RequestHeader(value = Identidad.HEADER_ROL, required = false) String rol) {
         Solicitante solicitante = Identidad.clienteOAdmin(userId, rol);
         return entradaService.obtener(id, solicitante.userId(), solicitante.esAdmin());
+    }
+
+    @PostMapping("/validar")
+    public EntradaResponse validar(
+            @RequestHeader(value = Identidad.HEADER_ID, required = false) String userId,
+            @RequestHeader(value = Identidad.HEADER_ROL, required = false) String rol,
+            @Valid @RequestBody ValidarEntradaRequest request) {
+        String operadorId = Identidad.personalAcceso(userId, rol);
+        return entradaService.validar(request.codigoQr(), request.eventoId(), operadorId);
     }
 }
 

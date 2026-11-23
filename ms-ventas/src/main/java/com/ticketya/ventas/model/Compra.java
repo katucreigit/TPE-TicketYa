@@ -37,6 +37,10 @@ public class Compra {
     @Column(name = "cliente_id", nullable = false)
     private String clienteId;
 
+    /** Correo opcional del cliente (header X-User-Email) para notificaciones. */
+    @Column(name = "cliente_email", length = 254)
+    private String clienteEmail;
+
     /** Id del evento en ms-eventos. */
     @Column(name = "evento_id", nullable = false)
     private Long eventoId;

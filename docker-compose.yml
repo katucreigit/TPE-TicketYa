@@ -132,6 +132,7 @@ services:
       DB_PASSWORD: ticketya
       MS_EVENTOS_URL: http://ms-eventos:8081
       MS_RESERVAS_URL: http://ms-reservas:8082
+      MS_NOTIFICACIONES_URL: http://ms-notificaciones:8085
     ports:
       - "8083:8083"
     depends_on:

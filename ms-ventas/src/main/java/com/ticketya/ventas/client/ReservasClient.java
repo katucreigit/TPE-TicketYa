@@ -66,6 +66,27 @@ public class ReservasClient {
      * @throws ConflictException   (409 ESTADO_INVALIDO) esta LIBERADA o CONFIRMADA
      */
     public ReservaRemota validar(UUID reservaId, String clienteId) {
+        ReservaRemota reserva = obtener(reservaId, clienteId);
+
+        String estado = reserva.estado();
+        if ("VENCIDA".equals(estado)) {
+            throw new GoneException("La reserva vencio. No se realizo ningun cobro.");
+        }
+        if ("LIBERADA".equals(estado) || "CONFIRMADA".equals(estado)) {
+            throw ConflictException.estadoInvalido("La reserva " + reservaId + " esta " + estado);
+        }
+        return reserva;
+    }
+
+    /**
+     * Recupera el estado actual de la reserva sin rechazar ningun estado valido (incluida {@code CONFIRMADA}),
+     * utilizado durante la reconciliacion o reintentos de compras en {@code PAGO_INCIERTO}.
+     *
+     * @throws NotFoundException   (404) la reserva no existe
+     * @throws ForbiddenException  (403) pertenece a otro cliente
+     * @throws BadGatewayException (502) ms-reservas no responde o falla
+     */
+    public ReservaRemota obtener(UUID reservaId, String clienteId) {
         ReservaRemota reserva = ejecutar(() -> restClient.get()
                 .uri("/reservas/{id}", reservaId)
                 .header(HEADER_ID, clienteId)
@@ -75,14 +96,6 @@ public class ReservasClient {
                 .body(ReservaRemota.class));
         if (reserva == null) {
             throw new BadGatewayException("ms-reservas respondio sin cuerpo");
-        }
-
-        String estado = reserva.estado();
-        if ("VENCIDA".equals(estado)) {
-            throw new GoneException("La reserva vencio. No se realizo ningun cobro.");
-        }
-        if ("LIBERADA".equals(estado) || "CONFIRMADA".equals(estado)) {
-            throw ConflictException.estadoInvalido("La reserva " + reservaId + " esta " + estado);
         }
         return reserva;
     }

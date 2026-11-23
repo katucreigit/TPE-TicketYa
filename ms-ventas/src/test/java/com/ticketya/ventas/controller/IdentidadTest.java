@@ -51,5 +51,38 @@ class IdentidadTest {
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(ex.getCode()).isEqualTo("IDEMPOTENCY_KEY_REQUERIDA");
     }
+
+    @Test
+    void emailOpcionalNormalizaValidosYDevuelveNullSiFaltaOEsInvalido() {
+        assertThat(Identidad.emailOpcional("  cliente@example.com  ")).isEqualTo("cliente@example.com");
+        assertThat(Identidad.emailOpcional(null)).isNull();
+        assertThat(Identidad.emailOpcional("   ")).isNull();
+        assertThat(Identidad.emailOpcional("no-es-un-email")).isNull();
+        assertThat(Identidad.emailOpcional("a..b@example.com")).isNull();
+    }
+
+    @Test
+    void personalAccesoConHeadersDevuelveSuId() {
+        assertThat(Identidad.personalAcceso(" acc-7 ", " PERSONAL_ACCESO ")).isEqualTo("acc-7");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CLIENTE", "ADMIN", "ORGANIZADOR", "ACCESO", "personal_acceso", "OTRO"})
+    void personalAccesoConOtroRolEs403AccesoDenegado(String rol) {
+        ApiException ex = catchThrowableOfType(ApiException.class, () -> Identidad.personalAcceso("acc-7", rol));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(ex.getCode()).isEqualTo("ACCESO_DENEGADO");
+    }
+
+    @ParameterizedTest
+    @CsvSource(value = {"NULL, PERSONAL_ACCESO", "acc-7, NULL", "NULL, NULL", "'  ', PERSONAL_ACCESO", "acc-7, ''"}, nullValues = "NULL")
+    void personalAccesoSinHeadersDeIdentidadEs400Validacion(String userId, String rol) {
+        ApiException ex = catchThrowableOfType(ApiException.class, () -> Identidad.personalAcceso(userId, rol));
+
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(ex.getCode()).isEqualTo("VALIDACION");
+        assertThat(ex.getDetails()).isNotEmpty();
+    }
 }
 

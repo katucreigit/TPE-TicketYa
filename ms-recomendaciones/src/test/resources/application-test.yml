@@ -1,0 +1,4 @@
+ticketya:
+  services:
+    # Las pruebas apuntan eventos-url a un HttpServer propio con @DynamicPropertySource.
+    eventos-read-timeout-ms: 1000

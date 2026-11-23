@@ -22,19 +22,23 @@ class ApiGatewayApplicationTests {
         assertThat(routeLocator).isNotNull();
     }
 
-    // Son 5 rutas desde la Entrega 2: se sumó "auth" (/api/auth/** hacia ms-auth) al incorporar JWT.
+    // Son 7 rutas: en la Entrega 2 se sumó "auth" (/api/auth/** hacia ms-auth) al incorporar JWT,
+    // "fila" (/api/fila/** hacia ms-fila) con add-fila-virtual y "recomendaciones" (/api/preferencias/** y
+    // /api/recomendaciones/** hacia ms-recomendaciones) con add-preferencias-recomendaciones.
     @Test
     void debeTenerConfiguradasLasRutasDeTodosLosServicios() {
         List<Route> rutas = Flux.from(routeLocator.getRoutes())
                 .collectList()
                 .block();
 
-        assertThat(rutas).hasSize(6);
+        assertThat(rutas).hasSize(8);
 
         assertThat(rutas)
                 .extracting(Route::getId)
                 .containsExactlyInAnyOrder(
                         "auth",
+                        "fila",
+                        "recomendaciones",
                         "reservas-disponibilidad",
                         "reservas",
                         "eventos",

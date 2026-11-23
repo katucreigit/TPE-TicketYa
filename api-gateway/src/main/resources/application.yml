@@ -40,6 +40,32 @@ spring:
                     name: auth
                     fallbackUri: forward:/fallback/auth
 
+            # Fila virtual (add-fila-virtual). Antes que la ruta general de eventos (order 2).
+            - id: fila
+              uri: ${MS_FILA_URL:http://localhost:8086}
+              order: 0
+              predicates:
+                - Path=/api/fila/**
+              filters:
+                - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: fila
+                    fallbackUri: forward:/fallback/fila
+
+            # Preferencias y recomendaciones (add-preferencias-recomendaciones).
+            - id: recomendaciones
+              uri: ${MS_RECOMENDACIONES_URL:http://localhost:8087}
+              order: 1
+              predicates:
+                - Path=/api/preferencias,/api/preferencias/**,/api/recomendaciones,/api/recomendaciones/**
+              filters:
+                - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: recomendaciones
+                    fallbackUri: forward:/fallback/recomendaciones
+
             - id: reservas-disponibilidad
               uri: ${MS_RESERVAS_URL:http://localhost:8082}
               order: 0
@@ -148,6 +174,22 @@ resilience4j:
         waitDurationInOpenState: 10s
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
+      fila:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+      recomendaciones:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
 
       notificaciones:
         slidingWindowType: COUNT_BASED
@@ -168,4 +210,8 @@ resilience4j:
       ventas:
         timeoutDuration: 20s
       notificaciones:
+        timeoutDuration: 20s
+      fila:
+        timeoutDuration: 20s
+      recomendaciones:
         timeoutDuration: 20s

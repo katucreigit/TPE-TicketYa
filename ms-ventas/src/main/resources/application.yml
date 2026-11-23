@@ -51,3 +51,9 @@ ticketya:
     notificaciones-connect-timeout-ms: 1000
     notificaciones-read-timeout-ms: 2000
     notificaciones-email-dominio: ticketya.local
+    # add-preferencias-recomendaciones: aviso best-effort de cada compra confirmada (nunca afecta la compra).
+    recomendaciones-url: ${MS_RECOMENDACIONES_URL:http://localhost:8087}
+    recomendaciones-connect-timeout-ms: 500
+    recomendaciones-read-timeout-ms: 1000
+  recomendaciones:
+    avisar: true

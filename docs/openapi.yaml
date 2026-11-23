@@ -1,28 +1,46 @@
 openapi: 3.0.3
 info:
   title: TicketYa API
-  version: 1.0.0-entrega1
+  version: 2.0.0-entrega2
   description: |
-    Contrato REST de la **Entrega 1 (core)** de TicketYa: eventos y lugares, publicación, reservas temporales,
-    compra con emisión de QR, no doble venta, devoluciones, cancelación de eventos y búsqueda multicriterio.
+    Contrato REST de la **Entrega 2** de TicketYa: eventos y lugares, publicación, reservas temporales,
+    compra con emisión de QR, no doble venta, devoluciones, cancelación de eventos, búsqueda multicriterio,
+    autenticación con JWT, fila virtual, control de acceso por QR, notificaciones, reporte de ventas,
+    preferencias y recomendaciones.
 
     **Entrada única:** todas las rutas públicas se acceden por el API Gateway (`http://localhost:8080/api`).
     El gateway quita el prefijo `/api` y reenvía al microservicio correspondiente:
 
     | Tag | Microservicio | Puerto local |
     |---|---|---|
+    | Auth | ms-auth | 8084 |
     | Lugares, Eventos | ms-eventos | 8081 |
     | Disponibilidad, Reservas | ms-reservas | 8082 |
     | Compras, Entradas, Devoluciones | ms-ventas | 8083 |
+    | Notificaciones (consulta directa, sin ruta en el gateway) | ms-notificaciones | 8085 |
+    | Fila | ms-fila | 8086 |
+    | Preferencias, Recomendaciones | ms-recomendaciones | 8087 |
 
     Las rutas `/api/eventos/{eventoId}/disponibilidad` y `/api/eventos/{eventoId}/sectores/{sectorId}/asientos`
     pertenecen a ms-reservas aunque comparten el prefijo `/api/eventos/`: en el gateway deben declararse antes
     que `/api/eventos/**`.
 
-    **Identidad (Entrega 1, sin JWT):** el usuario se identifica con los headers `X-User-Id` y `X-User-Rol`
-    (`CLIENTE`, `ORGANIZADOR`, `ADMIN`, `PERSONAL_ACCESO`). En la Entrega 2 se reemplazan por JWT.
+    **Identidad (JWT):** el cliente obtiene un token en `POST /auth/login` o `POST /auth/register` y lo manda en
+    `Authorization: Bearer <token>` (esquema `bearerAuth`; vence a las 24 h). El gateway valida el token y reenvía la
+    identidad a los microservicios en los headers `X-User-Id` y `X-User-Rol` (`CLIENTE`, `ORGANIZADOR`, `ADMIN`,
+    `PERSONAL_ACCESO`), reemplazando cualquier valor enviado por el cliente. Por eso esos headers figuran como
+    parámetros de cada operación: es lo que recibe el microservicio. Sin token solo se accede a `/auth/**` y a los
+    `GET` de `/eventos/**` y `/lugares/**`; el resto responde `401`.
+
+    **Trazabilidad:** todas las respuestas que pasan por el gateway llevan `X-Correlation-Id`. Si la solicitud no lo
+    trae, el gateway genera un UUID y lo propaga a los microservicios.
 
     **Idempotencia:** `POST /compras` exige el header `Idempotency-Key`.
+
+    **Fila virtual (E2):** en eventos de alta demanda, un `ADMIN` u `ORGANIZADOR` activa la fila del evento
+    (`/api/fila/eventos/{eventoId}/activar`). Los clientes ingresan, consultan su posición y quedan habilitados
+    por tandas durante una ventana de compra (10 minutos). Mientras la fila está activa, `POST /reservas` responde
+    `403 FILA_NO_HABILITADO` a quien todavía no está habilitado. Si ms-fila no responde, la reserva sigue (fail-open).
 
     **Endpoints internos (`/internal/**`):** solo se invocan entre microservicios y **no se enrutan por el gateway**.
     Cada uno declara su propio servidor (puerto del microservicio dueño).
@@ -38,6 +56,8 @@ servers:
   - url: http://localhost:8080/api
     description: API Gateway (entrada única)
 tags:
+  - name: Auth
+    description: Registro e inicio de sesión; emisión del JWT (ms-auth)
   - name: Lugares
     description: Estadios, teatros y salas con sus sectores (ms-eventos)
   - name: Eventos
@@ -54,10 +74,70 @@ tags:
     description: Solicitud, aprobación y rechazo de devoluciones (ms-ventas)
   - name: Notificaciones
     description: Consulta administrativa de las notificaciones enviadas a clientes (ms-notificaciones)
+  - name: Fila
+    description: Fila virtual por evento para ventas de alta demanda (ms-fila)
+  - name: Preferencias
+    description: Tipos de evento, artistas favoritos y ciudad del cliente (ms-recomendaciones)
+  - name: Recomendaciones
+    description: Eventos sugeridos por preferencias, historial y popularidad (ms-recomendaciones)
   - name: Internos
     description: Endpoints entre microservicios. No pasan por el gateway.
 
 paths:
+  # ------------------------------------------------------------------ AUTH
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registrar
+      summary: Registrar un usuario y obtener su token
+      description: |
+        Ruta pública. Crea el usuario con el rol indicado y devuelve un JWT válido por 24 horas.
+        Los errores de ms-auth usan el formato por defecto de Spring (`timestamp`, `status`, `error`, `path`),
+        no el `Error` estándar del resto de los servicios.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example: { email: cliente@example.com, password: miPassword123, rol: CLIENTE }
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Email inválido, contraseña vacía o rol ausente
+        '409':
+          description: El email ya está registrado
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Iniciar sesión y obtener un token
+      description: Ruta pública. Devuelve un JWT válido por 24 horas.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example: { email: cliente@example.com, password: miPassword123 }
+      responses:
+        '200':
+          description: Credenciales válidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Email o contraseña ausentes
+        '401':
+          description: Credenciales inválidas
+
   # ------------------------------------------------------------------ LUGARES
   /lugares:
     post:
@@ -636,6 +716,8 @@ paths:
       summary: Reservar lugares temporalmente (10 minutos)
       description: |
         Rol `CLIENTE`. En un sector **numerado** se envían `asientos`; en uno **no numerado**, `cantidad`.
+        Si el evento tiene la fila virtual activa, antes de reservar se consulta a ms-fila (timeout 1 s): un cliente no
+        habilitado recibe `403 FILA_NO_HABILITADO`. Si ms-fila no responde, la reserva sigue (fail-open).
         La operación es **todo o nada**: si algún lugar ya no está libre responde `409` y no queda ninguno reservado.
         Mecanismo anti doble venta: `UPDATE` condicional por estado sobre la base de ms-reservas.
         También valida el límite de entradas por cliente para el evento (`422`).
@@ -680,6 +762,21 @@ paths:
                 expiraEn: '2026-11-07T17:12:00'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          description: |
+            El rol no es `CLIENTE` (`ACCESO_DENEGADO`), o el evento tiene la fila virtual activa y el cliente todavía
+            no está habilitado (`FILA_NO_HABILITADO`). No queda ningún lugar reservado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                accesoDenegado:
+                  summary: Rol distinto de CLIENTE
+                  value: { timestamp: '2026-11-07T17:02:11', status: 403, error: Forbidden, code: ACCESO_DENEGADO, message: No tiene permiso para esta operacion, path: /reservas }
+                filaNoHabilitado:
+                  summary: Cliente en espera en la fila virtual
+                  value: { timestamp: '2026-11-07T17:02:11', status: 403, error: Forbidden, code: FILA_NO_HABILITADO, message: El evento tiene fila virtual y todavia no es su turno para reservar, path: /reservas }
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -1411,9 +1508,11 @@ paths:
     get:
       tags: [Internos]
       operationId: internoReporteVentasEvento
-      summary: "[ms-eventos → ms-ventas] Obtener reporte de ventas por evento y sector"
+      summary: "[interno] Obtener reporte de ventas por evento y sector"
       description: |
         Devuelve los totales del evento y el desglose por sector a partir de compras en estado `APROBADA`.
+        Todavía ningún servicio lo invoca ni hay ruta pública en el gateway: se consulta directo en ms-ventas (puerto 8083),
+        sin JWT ni control de rol.
         Si el evento no tiene ventas aprobadas registradas, responde `200` con contadores y recaudación en `0` y `sectores: []`.
       parameters:
         - $ref: '#/components/parameters/EventoIdPath'
@@ -1561,21 +1660,386 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  # ------------------------------------------------------------------ FILA VIRTUAL
+  /fila/eventos/{eventoId}/activar:
+    post:
+      tags: [Fila]
+      operationId: activarFila
+      summary: Activar la fila virtual de un evento (ADMIN u ORGANIZADOR)
+      description: |
+        Deja activa la fila del evento con el tamaño de tanda y los segundos entre tandas indicados. Ambos campos
+        son opcionales: por defecto, 100 y 60. La primera tanda se habilita `segundosEntreTandas` después de activar.
+        Cada habilitado puede reservar durante `minutosVentana` (10); si no lo hace, pierde el turno.
+
+        Si la fila ya estaba activa, actualiza los parámetros y conserva a los clientes en espera y a los habilitados.
+        No se verifica que el organizador sea el dueño del evento.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivarFilaRequest'
+            example: { tamanoTanda: 50, segundosEntreTandas: 30 }
+      responses:
+        '200':
+          description: Fila activa con su configuración y su tamaño actual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilaConfiguracion'
+              example:
+                eventoId: 42
+                activa: true
+                tamanoTanda: 50
+                segundosEntreTandas: 30
+                minutosVentana: 10
+                proximaTandaEn: '2026-12-01T20:00:30'
+                enEspera: 0
+                habilitados: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/FilaNoDisponible'
+
+  /fila/eventos/{eventoId}/desactivar:
+    post:
+      tags: [Fila]
+      operationId: desactivarFila
+      summary: Desactivar la fila virtual de un evento (ADMIN u ORGANIZADOR)
+      description: |
+        Deja la fila inactiva y descarta a los clientes en espera y a los habilitados: desde ese momento cualquier
+        cliente puede reservar. Es idempotente: desactivar una fila inactiva también responde `204`.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '204':
+          description: Fila desactivada (o ya estaba inactiva)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/FilaNoDisponible'
+
+  /fila/eventos/{eventoId}/ingresar:
+    post:
+      tags: [Fila]
+      operationId: ingresarFila
+      summary: Ingresar a la fila virtual de un evento (CLIENTE)
+      description: |
+        Ubica al cliente al final de la fila, en orden de llegada. Es **idempotente**: si ya está en espera devuelve
+        su posición actual, y si ya está habilitado devuelve `HABILITADO` con `habilitadoHasta`, sin crear otro
+        lugar. Si perdió el turno, vuelve a entrar al final.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Estado del cliente en la fila
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilaEstadoCliente'
+              examples:
+                enEspera:
+                  summary: En espera
+                  value: { eventoId: 42, activa: true, estado: EN_ESPERA, posicion: 3, habilitado: false }
+                habilitado:
+                  summary: Ya habilitado (ingreso repetido)
+                  value: { eventoId: 42, activa: true, estado: HABILITADO, habilitado: true, habilitadoHasta: '2026-12-01T20:10:30' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: El evento no tiene la fila virtual activa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-12-01T20:00:05', status: 409, error: Conflict, code: FILA_NO_ACTIVA, message: El evento 99 no tiene la fila virtual activa, path: /fila/eventos/99/ingresar }
+        '503':
+          $ref: '#/components/responses/FilaNoDisponible'
+
+  /fila/eventos/{eventoId}/posicion:
+    get:
+      tags: [Fila]
+      operationId: posicionFila
+      summary: Consultar la posición en la fila (CLIENTE)
+      description: |
+        Responde siempre `200`, para que el frontend consulte periódicamente sin manejar errores:
+        `EN_ESPERA` con `posicion`; `HABILITADO` con `habilitadoHasta`; `FUERA_DE_FILA` si la fila está activa y el
+        cliente no está en ella (nunca ingresó o perdió el turno); `SIN_FILA` si el evento no tiene la fila activa.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Estado del cliente en la fila
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilaEstadoCliente'
+              examples:
+                enEspera:
+                  summary: En espera
+                  value: { eventoId: 42, activa: true, estado: EN_ESPERA, posicion: 3, habilitado: false }
+                habilitado:
+                  summary: Habilitado
+                  value: { eventoId: 42, activa: true, estado: HABILITADO, habilitado: true, habilitadoHasta: '2026-12-01T20:10:30' }
+                fueraDeFila:
+                  summary: Fila activa, cliente fuera de ella
+                  value: { eventoId: 42, activa: true, estado: FUERA_DE_FILA, habilitado: false }
+                sinFila:
+                  summary: Evento sin fila activa
+                  value: { eventoId: 99, activa: false, estado: SIN_FILA, habilitado: true }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/FilaNoDisponible'
+
+  /internal/fila/eventos/{eventoId}/clientes/{clienteId}/estado:
+    servers:
+      - url: http://localhost:8086
+        description: ms-fila (directo, sin gateway)
+    get:
+      tags: [Internos]
+      operationId: internoEstadoFila
+      summary: "[ms-reservas → ms-fila] ¿El cliente puede reservar en este evento?"
+      description: |
+        Si la fila del evento no está activa responde `activa=false, habilitado=true`. Con la fila activa,
+        `habilitado` es `true` solo si el cliente está habilitado y su ventana no venció **al momento de la consulta**.
+        ms-reservas la llama antes de cada reserva con timeout de 1 s y, si falla, deja pasar la reserva (fail-open).
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - name: clienteId
+          in: path
+          required: true
+          schema: { type: string }
+          example: '101'
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Identificador de correlación de la reserva que origina la consulta
+          schema: { type: string }
+          example: abc-123
+      responses:
+        '200':
+          description: Estado del cliente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilaEstadoInterno'
+              examples:
+                sinFila:
+                  summary: Evento sin fila activa
+                  value: { activa: false, habilitado: true }
+                enEspera:
+                  summary: Fila activa, cliente no habilitado
+                  value: { activa: true, habilitado: false }
+                habilitado:
+                  summary: Fila activa, cliente habilitado
+                  value: { activa: true, habilitado: true }
+        '503':
+          $ref: '#/components/responses/FilaNoDisponible'
+
+  # ------------------------------------------------------------------ PREFERENCIAS Y RECOMENDACIONES
+  /preferencias:
+    get:
+      tags: [Preferencias]
+      operationId: obtenerPreferencias
+      summary: Ver mis preferencias (CLIENTE)
+      description: Si el cliente nunca guardó preferencias responde `200` con listas vacías, `ciudad` y `actualizadaEn` en `null`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Preferencias del cliente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferencias'
+              examples:
+                conPreferencias:
+                  summary: Con preferencias
+                  value: { clienteId: '101', tipos: [RECITAL, TEATRO], artistas: [Los Andariegos], ciudad: Tandil, actualizadaEn: '2026-12-01T20:00:00Z' }
+                sinPreferencias:
+                  summary: Nunca las guardó
+                  value: { clienteId: '202', tipos: [], artistas: [], ciudad: null, actualizadaEn: null }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Preferencias]
+      operationId: guardarPreferencias
+      summary: Guardar mis preferencias (CLIENTE)
+      description: |
+        **Reemplaza** las preferencias anteriores. Un campo ausente se guarda vacío (`[]` o `null`) y los valores
+        repetidos se guardan una vez (artistas comparados sin mayúsculas, tildes ni espacios en los extremos).
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenciasRequest'
+            example: { tipos: [RECITAL, TEATRO], artistas: [Los Andariegos], ciudad: Tandil }
+      responses:
+        '200':
+          description: Preferencias guardadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferencias'
+        '400':
+          description: Tipo de evento inexistente, artista vacío o de más de 100 caracteres, más de 20 artistas, ciudad de más de 100 caracteres o JSON mal formado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-12-01T20:00:00', status: 400, error: Bad Request, code: VALIDACION, message: Datos invalidos, path: /preferencias, details: ['tipos.[0] tiene un valor no admitido: OPERA'] }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /recomendaciones:
+    get:
+      tags: [Recomendaciones]
+      operationId: recomendaciones
+      summary: Eventos recomendados para mí (CLIENTE)
+      description: |
+        Eventos `PUBLICADO` que el cliente no compró, ordenados por `puntaje` (luego por fecha y por id):
+
+        | Componente | Puntos | Motivo |
+        |---|---|---|
+        | tipo en mis preferencias | 3 | `TIPO` |
+        | algún participante es un artista favorito | 3 | `ARTISTA` |
+        | ciudad igual a la mía | 2 | `CIUDAD` |
+        | compradores en común / máximo entre los candidatos | hasta 2 | `TAMBIEN_COMPRARON` |
+        | compradores del evento / máximo entre los candidatos | hasta 1 | `POPULAR` |
+
+        Sin preferencias ni historial devuelve los más populares; si nadie compró nada, los más próximos.
+        Si ms-eventos no responde, usa la última copia del catálogo (o una lista vacía) con `degradado: true`; nunca `500`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Recomendaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recomendaciones'
+              example:
+                degradado: false
+                eventos:
+                  - { eventoId: 2, nombre: Hamlet, tipo: TEATRO, ciudad: Azul, fechaHora: '2027-03-11T21:00:00', participantes: [Elenco], puntaje: 3.0, motivos: [TIPO] }
+                  - { eventoId: 1, nombre: Festival de Verano, tipo: RECITAL, ciudad: Rosario, fechaHora: '2027-03-01T21:00:00', participantes: [Banda X], puntaje: 1.0, motivos: [POPULAR] }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /recomendaciones/eventos/{eventoId}/tambien-compraron:
+    get:
+      tags: [Recomendaciones]
+      operationId: tambienCompraron
+      summary: Quienes compraron este evento también compraron (cualquier rol autenticado)
+      description: |
+        Otros eventos `PUBLICADO` comprados por clientes que compraron `eventoId`, con `compradoresEnComun`
+        (clientes distintos), de mayor a menor. Lista vacía si nadie compró el evento. Mismo fallback que `/recomendaciones`.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Eventos comprados en común
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TambienCompraron'
+              example:
+                eventoId: 42
+                degradado: false
+                eventos:
+                  - { eventoId: 43, nombre: Recital Y, tipo: RECITAL, ciudad: Tandil, fechaHora: '2027-03-01T21:00:00', participantes: [], compradoresEnComun: 2 }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /internal/compras:
+    servers:
+      - url: http://localhost:8087
+        description: ms-recomendaciones (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoRegistrarCompra
+      summary: "[ms-ventas → ms-recomendaciones] Registrar una compra confirmada"
+      description: |
+        Idempotente por `compraId`: un aviso repetido (también simultáneo) responde `204` sin crear otro registro.
+        ms-ventas lo llama en modo best-effort (timeout de conexión 500 ms y de lectura 1000 ms): si falla, la compra
+        no se ve afectada y queda la advertencia `RECOMENDACIONES_NO_DISPONIBLE` con el `correlationId`.
+      parameters:
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Identificador de correlación de la compra
+          schema: { type: string }
+          example: abc-123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompraRegistradaRequest'
+            example: { compraId: 9f1c2d3e-0000-4000-8000-000000000055, clienteId: '101', eventoIds: [42] }
+      responses:
+        '204':
+          description: Compra registrada (nueva o ya existente)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
 # ====================================================================== COMPONENTES
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token emitido por `POST /auth/login` o `POST /auth/register`. Lo valida el gateway.
+
   parameters:
     XUserId:
       name: X-User-Id
       in: header
       required: true
-      description: Id del usuario (Entrega 1, sin JWT)
+      description: Id del usuario. Lo pone el gateway a partir del subject del JWT; el cliente no lo envía
       schema: { type: string }
       example: '101'
     XUserRol:
       name: X-User-Rol
       in: header
       required: true
-      description: Rol del usuario (Entrega 1, sin JWT)
+      description: Rol del usuario. Lo pone el gateway a partir del claim `rol` del JWT; el cliente no lo envía
       schema:
         type: string
         enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
@@ -1628,6 +2092,11 @@ components:
       in: query
       description: Tamaño de página
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Limite:
+      name: limite
+      in: query
+      description: Cantidad máxima de eventos a devolver
+      schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
 
   responses:
     BadRequest:
@@ -1665,6 +2134,13 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
           example: { timestamp: '2026-11-07T17:02:11', status: 409, error: Conflict, code: ESTADO_INVALIDO, message: La operacion no es valida para el estado actual, path: /eventos/42/cancelar }
+    FilaNoDisponible:
+      description: El almacenamiento de la fila virtual (Redis) no está disponible
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example: { timestamp: '2026-12-01T20:00:05', status: 503, error: Service Unavailable, code: SERVICIO_NO_DISPONIBLE, message: La fila virtual no esta disponible temporalmente. Intente nuevamente., path: /fila/eventos/42/ingresar }
     BadGateway:
       description: Falló un servicio externo (otro microservicio o la pasarela de pagos)
       content:
@@ -2126,6 +2602,146 @@ components:
             content:
               type: array
               items: { $ref: '#/components/schemas/Notificacion' }
+
+    # ---- fila virtual
+    ActivarFilaRequest:
+      type: object
+      description: Ambos campos son opcionales; el que falta toma el valor por defecto.
+      properties:
+        tamanoTanda: { type: integer, minimum: 1, maximum: 1000, default: 100, example: 50 }
+        segundosEntreTandas: { type: integer, minimum: 1, maximum: 3600, default: 60, example: 30 }
+    FilaConfiguracion:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        activa: { type: boolean, example: true }
+        tamanoTanda: { type: integer, example: 50 }
+        segundosEntreTandas: { type: integer, example: 30 }
+        minutosVentana: { type: integer, description: Minutos que un habilitado tiene para reservar, example: 10 }
+        proximaTandaEn: { type: string, format: date-time, description: Próxima habilitación (UTC), example: '2026-12-01T20:00:30' }
+        enEspera: { type: integer, format: int64, example: 0 }
+        habilitados: { type: integer, format: int64, example: 0 }
+    EstadoFilaCliente:
+      type: string
+      enum: [EN_ESPERA, HABILITADO, FUERA_DE_FILA, SIN_FILA]
+    FilaEstadoCliente:
+      type: object
+      required: [eventoId, activa, estado, habilitado]
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        activa: { type: boolean, example: true }
+        estado: { $ref: '#/components/schemas/EstadoFilaCliente' }
+        posicion: { type: integer, format: int64, description: Solo en EN_ESPERA; 1 es el próximo en ser habilitado, example: 3 }
+        habilitado: { type: boolean, example: false }
+        habilitadoHasta: { type: string, format: date-time, description: Solo en HABILITADO; fin de la ventana de compra (UTC), example: '2026-12-01T20:10:30' }
+    FilaEstadoInterno:
+      type: object
+      required: [activa, habilitado]
+      properties:
+        activa: { type: boolean, example: true }
+        habilitado: { type: boolean, example: false }
+
+    # ---- auth
+    Rol:
+      type: string
+      enum: [CLIENTE, ORGANIZADOR, ADMIN, PERSONAL_ACCESO]
+    RegisterRequest:
+      type: object
+      required: [email, password, rol]
+      properties:
+        email: { type: string, format: email, example: cliente@example.com }
+        password: { type: string, minLength: 1, example: miPassword123 }
+        rol: { $ref: '#/components/schemas/Rol' }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, example: cliente@example.com }
+        password: { type: string, minLength: 1, example: miPassword123 }
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, example: eyJhbGciOiJIUzI1NiJ9... }
+        userId: { type: integer, format: int64, example: 1 }
+        rol: { $ref: '#/components/schemas/Rol' }
+
+    # ---- preferencias y recomendaciones
+    PreferenciasRequest:
+      type: object
+      description: Todos los campos son opcionales; el ausente se guarda vacío.
+      properties:
+        tipos:
+          type: array
+          items: { $ref: '#/components/schemas/TipoEvento' }
+        artistas:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 100 }
+          example: [Los Andariegos]
+        ciudad: { type: string, maxLength: 100, nullable: true, example: Tandil }
+    Preferencias:
+      type: object
+      properties:
+        clienteId: { type: string, example: '101' }
+        tipos:
+          type: array
+          items: { $ref: '#/components/schemas/TipoEvento' }
+        artistas: { type: array, items: { type: string }, example: [Los Andariegos] }
+        ciudad: { type: string, nullable: true, example: Tandil }
+        actualizadaEn: { type: string, format: date-time, nullable: true, example: '2026-12-01T20:00:00Z' }
+    MotivoRecomendacion:
+      type: string
+      enum: [TIPO, ARTISTA, CIUDAD, TAMBIEN_COMPRARON, POPULAR]
+    EventoRecomendado:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 2 }
+        nombre: { type: string, example: Hamlet }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        ciudad: { type: string, example: Azul }
+        fechaHora: { type: string, format: date-time, example: '2027-03-11T21:00:00' }
+        participantes: { type: array, items: { type: string }, example: [Elenco] }
+        puntaje: { type: number, format: double, description: Dos decimales, example: 3.0 }
+        motivos:
+          type: array
+          items: { $ref: '#/components/schemas/MotivoRecomendacion' }
+    Recomendaciones:
+      type: object
+      properties:
+        degradado: { type: boolean, description: true si ms-eventos no respondió y se usó la última copia del catálogo o una lista vacía, example: false }
+        eventos:
+          type: array
+          items: { $ref: '#/components/schemas/EventoRecomendado' }
+    EventoTambienComprado:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 43 }
+        nombre: { type: string, example: Recital Y }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        ciudad: { type: string, example: Tandil }
+        fechaHora: { type: string, format: date-time, example: '2027-03-01T21:00:00' }
+        participantes: { type: array, items: { type: string } }
+        compradoresEnComun: { type: integer, format: int64, example: 2 }
+    TambienCompraron:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        degradado: { type: boolean, example: false }
+        eventos:
+          type: array
+          items: { $ref: '#/components/schemas/EventoTambienComprado' }
+    CompraRegistradaRequest:
+      type: object
+      required: [compraId, clienteId, eventoIds]
+      properties:
+        compraId: { type: string, maxLength: 100, example: 9f1c2d3e-0000-4000-8000-000000000055 }
+        clienteId: { type: string, maxLength: 100, example: '101' }
+        eventoIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: integer, format: int64, minimum: 1 }
+          example: [42]
 
     PageBase:
       type: object

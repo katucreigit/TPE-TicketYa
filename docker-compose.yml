@@ -1,6 +1,6 @@
-# Sistema completo: 4 bases PostgreSQL, 1 MongoDB, 5 microservicios y el API Gateway.
+# Sistema completo: 4 bases PostgreSQL, 1 MongoDB, 1 Redis, 7 microservicios y el API Gateway (14 contenedores).
 #   Todo:            docker compose up -d --build
-#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth mongo  (servicios desde el IDE)
+#   Solo las bases:  docker compose up -d db-eventos db-reservas db-ventas db-auth mongo redis  (servicios desde el IDE)
 # Dentro de la red de compose los servicios se llaman por nombre de servicio; fuera de compose
 # cada application.yml usa localhost por defecto.
 services:
@@ -72,7 +72,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # MongoDB compartido por los servicios NoSQL; cada uno usa su propia base (ms-notificaciones: db_notificaciones).
+  # MongoDB compartido por los servicios NoSQL; cada uno usa su propia base
+  # (ms-notificaciones: db_notificaciones, ms-recomendaciones: db_recomendaciones).
   mongo:
     image: mongo:7
     container_name: ticketya-mongo
@@ -90,6 +91,22 @@ services:
       retries: 10
       # En una máquina cargada mongo tarda más en arrancar: las fallas de este período no cuentan como intentos.
       start_period: 30s
+
+  # Redis de la fila virtual (ms-fila). AOF sobre un volumen: la fila sobrevive a un reinicio del contenedor.
+  redis:
+    image: redis:7-alpine
+    container_name: ticketya-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   ms-eventos:
     build: ./ms-eventos
@@ -116,6 +133,8 @@ services:
       DB_USER: ticketya
       DB_PASSWORD: ticketya
       MS_EVENTOS_URL: http://ms-eventos:8081
+      # Sin depends_on a ms-fila: si no responde, las reservas siguen (fail-open, add-fila-virtual).
+      MS_FILA_URL: http://ms-fila:8086
     ports:
       - "8082:8082"
     depends_on:
@@ -133,6 +152,8 @@ services:
       MS_EVENTOS_URL: http://ms-eventos:8081
       MS_RESERVAS_URL: http://ms-reservas:8082
       MS_NOTIFICACIONES_URL: http://ms-notificaciones:8085
+      # Sin depends_on a ms-recomendaciones: el aviso de compras es best-effort (add-preferencias-recomendaciones).
+      MS_RECOMENDACIONES_URL: http://ms-recomendaciones:8087
     ports:
       - "8083:8083"
     depends_on:
@@ -168,7 +189,33 @@ services:
       mongo:
         condition: service_healthy
 
-  # El gateway arranca al final, después de los cuatro microservicios.
+  ms-fila:
+    build: ./ms-fila
+    image: ticketya/ms-fila
+    container_name: ticketya-ms-fila
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    ports:
+      - "8086:8086"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  ms-recomendaciones:
+    build: ./ms-recomendaciones
+    image: ticketya/ms-recomendaciones
+    container_name: ticketya-ms-recomendaciones
+    environment:
+      MONGO_URI: mongodb://ticketya:ticketya@mongo:27017/db_recomendaciones?authSource=admin
+      MS_EVENTOS_URL: http://ms-eventos:8081
+    ports:
+      - "8087:8087"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # El gateway arranca al final, después de los microservicios a los que enruta.
   api-gateway:
     build: ./api-gateway
     image: ticketya/api-gateway
@@ -180,6 +227,8 @@ services:
       MS_RESERVAS_URL: http://ms-reservas:8082
       MS_VENTAS_URL: http://ms-ventas:8083
       MS_NOTIFICACIONES_URL: http://ms-notificaciones:8085
+      MS_FILA_URL: http://ms-fila:8086
+      MS_RECOMENDACIONES_URL: http://ms-recomendaciones:8087
     ports:
       - "8080:8080"
     depends_on:
@@ -191,6 +240,10 @@ services:
         condition: service_started
       ms-auth:
         condition: service_started
+      ms-fila:
+        condition: service_started
+      ms-recomendaciones:
+        condition: service_started
 
 volumes:
   db-eventos-data:
@@ -198,3 +251,4 @@ volumes:
   db-ventas-data:
   db-auth-data:
   mongo-data:
+  redis-data:

@@ -1,0 +1,35 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: ms-recomendaciones
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://ticketya:ticketya@localhost:27017/db_recomendaciones?authSource=admin}
+      # Los indices se crean de forma explicita al arrancar (config/IndicesMongo).
+      auto-index-creation: false
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    # Cada linea lleva el correlationId de la solicitud en curso (MDC, add-trazabilidad).
+    level: "%5p [%X{correlationId:-}]"
+
+ticketya:
+  services:
+    eventos-url: ${MS_EVENTOS_URL:http://localhost:8081}
+    eventos-connect-timeout-ms: 1000
+    eventos-read-timeout-ms: 2000
+  catalogo:
+    # Copia en memoria del catalogo; si ms-eventos falla se usa la ultima aunque haya vencido (design.md D5).
+    ttl: 30s
+    max-paginas: 20

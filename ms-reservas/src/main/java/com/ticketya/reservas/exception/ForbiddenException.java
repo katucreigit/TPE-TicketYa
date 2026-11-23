@@ -12,4 +12,9 @@ public class ForbiddenException extends ApiException {
     public ForbiddenException(String message) {
         super(HttpStatus.FORBIDDEN, "ACCESO_DENEGADO", message);
     }
+
+    /** 403 con un codigo propio, por ejemplo FILA_NO_HABILITADO. */
+    public ForbiddenException(String code, String message) {
+        super(HttpStatus.FORBIDDEN, code, message);
+    }
 }

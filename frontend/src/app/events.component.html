@@ -22,8 +22,10 @@
     <div class="row row-cols-1 row-cols-md-3 g-3">
       @for (ev of eventos; track ev.id) {
         <div class="col">
-          <div class="card h-100 shadow-sm" style="cursor:pointer"
-               [routerLink]="['/events', ev.id]">
+          <div class="card h-100 shadow-sm"
+               [style.cursor]="ev.estado === 'AGOTADO' || ev.estado === 'CANCELADO' ? 'default' : 'pointer'"
+               [style.opacity]="ev.estado === 'AGOTADO' || ev.estado === 'CANCELADO' ? '0.6' : '1'"
+               [routerLink]="ev.estado === 'AGOTADO' || ev.estado === 'CANCELADO' ? null : ['/events', ev.id]">
             <div class="card-body">
               <h6 class="card-title">{{ ev.nombre }}</h6>
               <p class="small text-muted mb-1">

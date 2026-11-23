@@ -41,12 +41,46 @@
             <input type="number" class="form-control" [(ngModel)]="cantidad" min="1" max="4">
           </div>
         }
+        @if (sector?.tipo === 'NUMERADO') {
+          @if (loadingAsientos) {
+            <div class="text-center py-3">
+              <div class="spinner-border spinner-border-sm text-primary"></div>
+              <span class="ms-2 small text-muted">Cargando asientos...</span>
+            </div>
+          } @else if (asientosDisponibles.length === 0) {
+            <div class="alert alert-warning py-2 small">No hay asientos disponibles en este sector.</div>
+          } @else {
+            <p class="form-label mb-2">
+              Seleccioná tus asientos
+              <span class="text-muted small">({{ asientosSeleccionados.length }} seleccionado/s)</span>
+            </p>
+            <div class="mb-3">
+              @for (fila of filas(); track fila) {
+                <div class="d-flex align-items-center gap-1 mb-1 flex-wrap">
+                  <span class="text-muted small fw-semibold" style="min-width:20px">{{ fila }}</span>
+                  @for (a of asientosDeFila(fila); track a.numero) {
+                    <button class="btn btn-sm"
+                            [class.btn-outline-success]="!isSeleccionado(a)"
+                            [class.btn-primary]="isSeleccionado(a)"
+                            style="width:38px; padding:2px 0; font-size:.75rem"
+                            (click)="toggleAsiento(a)">
+                      {{ a.numero }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+            <p class="small text-muted">Verde = disponible · Azul = seleccionado</p>
+          }
+        }
         @if (errorReserva) {
           <div class="alert alert-danger py-2 small">{{ errorReserva }}</div>
         }
       </div>
       <div class="card-footer">
-        <button class="btn btn-primary" (click)="reservar()" [disabled]="reservando">
+        <button class="btn btn-primary"
+                (click)="reservar()"
+                [disabled]="reservando || (sector?.tipo === 'NUMERADO' && asientosSeleccionados.length === 0)">
           @if (reservando) { <span class="spinner-border spinner-border-sm me-1"></span> }
           Reservar (10 min)
         </button>
@@ -60,30 +94,12 @@
     <div class="card shadow-sm">
       <div class="card-header">2. Pagar</div>
       <div class="card-body">
-        <p>
+        <p class="mb-1">
           Total: <strong>$ {{ (sector?.precio || 0) * reserva.cantidad | number:'1.2-2' }}</strong>
-          ({{ reserva.cantidad }} entrada/s)
+          <span class="text-muted small ms-1">({{ reserva.cantidad }} entrada/s)</span>
         </p>
-        <div class="mb-3">
-          <label class="form-label">Medio de pago</label>
-          <select class="form-select" [(ngModel)]="tipoPago" style="max-width:280px">
-            <option value="TARJETA_CREDITO">Tarjeta de crédito</option>
-            <option value="TARJETA_DEBITO">Tarjeta de débito</option>
-            <option value="TRANSFERENCIA">Transferencia</option>
-          </select>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Token de pago</label>
-          <input class="form-control" [(ngModel)]="token"
-                 placeholder="tok_ok / tok_rechazado / tok_timeout"
-                 style="max-width:320px">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Últimos 4 dígitos</label>
-          <input class="form-control" [(ngModel)]="ultimos4" maxlength="4" style="max-width:120px">
-        </div>
         @if (errorPago) {
-          <div class="alert alert-danger py-2 small">{{ errorPago }}</div>
+          <div class="alert alert-danger py-2 small mt-2">{{ errorPago }}</div>
         }
       </div>
       <div class="card-footer">

@@ -34,7 +34,6 @@ export class EventDetailComponent implements OnInit {
 
   evento:   Evento | null  = null;
   sectores: Sector[]       = [];
-  selected: Sector | null  = null;
   loading = true;
 
   ngOnInit() {
@@ -50,9 +49,5 @@ export class EventDetailComponent implements OnInit {
       },
       error: () => { this.loading = false; }
     });
-  }
-
-  select(s: Sector) {
-    this.selected = this.selected?.sectorId === s.sectorId ? null : s;
   }
 }

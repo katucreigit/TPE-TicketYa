@@ -179,6 +179,7 @@ services:
       MS_EVENTOS_URL: http://ms-eventos:8081
       MS_RESERVAS_URL: http://ms-reservas:8082
       MS_VENTAS_URL: http://ms-ventas:8083
+      MS_NOTIFICACIONES_URL: http://ms-notificaciones:8085
     ports:
       - "8080:8080"
     depends_on:

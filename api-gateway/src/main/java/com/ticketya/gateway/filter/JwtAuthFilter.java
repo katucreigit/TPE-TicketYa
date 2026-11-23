@@ -36,6 +36,11 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
         String path = exchange.getRequest().getPath().value();
         HttpMethod method = exchange.getRequest().getMethod();
 
+        // Las solicitudes preflight de CORS no requieren autenticacion.
+        if (method == HttpMethod.OPTIONS) {
+            return chain.filter(eliminarHeadersIdentidad(exchange));
+        }
+
         String authHeader = exchange.getRequest().getHeaders().getFirst("Authorization");
 
         // Las rutas de autenticacion son publicas y no necesitan identidad previa.

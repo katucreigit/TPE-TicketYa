@@ -88,6 +88,18 @@ spring:
                     name: ventas
                     fallbackUri: forward:/fallback/ventas
 
+            - id: notificaciones
+              uri: ${MS_NOTIFICACIONES_URL:http://localhost:8085}
+              order: 4
+              predicates:
+                - Path=/api/notificaciones,/api/notificaciones/**
+              filters:
+                - StripPrefix=1
+                - name: CircuitBreaker
+                  args:
+                    name: notificaciones
+                    fallbackUri: forward:/fallback/notificaciones
+
 jwt:
   # Valor de desarrollo; en un despliegue real se define JWT_SECRET (debe coincidir con el de ms-auth).
   secret: ${JWT_SECRET:U2VjcmV0S2V5UGFyYUpXVFRpY2tldFlhMjAyNlN1cGVyU2VjcmV0YQ==}
@@ -137,6 +149,14 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
 
+      notificaciones:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
   timelimiter:
     instances:
       auth:
@@ -146,4 +166,6 @@ resilience4j:
       eventos:
         timeoutDuration: 20s
       ventas:
+        timeoutDuration: 20s
+      notificaciones:
         timeoutDuration: 20s

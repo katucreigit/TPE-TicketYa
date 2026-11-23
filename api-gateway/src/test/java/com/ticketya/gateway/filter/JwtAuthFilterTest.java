@@ -196,6 +196,28 @@ class JwtAuthFilterTest {
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
+    @Test
+    void solicitudOptionsSinTokenPermiteContinuarYEliminaHeadersFalsificados() {
+        MockServerWebExchange exchange = MockServerWebExchange.from(
+                MockServerHttpRequest.options("/api/reservas")
+                        .header("X-User-Id", "999")
+                        .header("X-User-Rol", "ADMIN")
+                        .build()
+        );
+
+        AtomicReference<ServerWebExchange> exchangeRecibido = new AtomicReference<>();
+
+        jwtAuthFilter.filter(exchange, exchangeMutado -> {
+            exchangeRecibido.set(exchangeMutado);
+            return Mono.empty();
+        }).block();
+
+        assertThat(exchangeRecibido.get()).isNotNull();
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Id")).isNull();
+        assertThat(exchangeRecibido.get().getRequest().getHeaders()
+                .getFirst("X-User-Rol")).isNull();
+    }
     private MockServerWebExchange crearSolicitudPublicaConToken(String token) {
         return MockServerWebExchange.from(
                 MockServerHttpRequest.get("/api/eventos/123")

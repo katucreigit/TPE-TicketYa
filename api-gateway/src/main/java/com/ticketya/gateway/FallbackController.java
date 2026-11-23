@@ -9,9 +9,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ServerWebExchange;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 
 @RestController
 public class FallbackController {
@@ -33,17 +35,26 @@ public class FallbackController {
                     causa.getMessage(),
                     causa);
         } else {
-            log.error("Fallback ejecutado sin excepción disponible. Path={}",
+            log.error("Fallback ejecutado sin excepcion disponible. Path={}",
                     exchange.getRequest().getURI().getPath());
         }
+
+        @SuppressWarnings("unchecked")
+        Set<URI> urlsOriginales = exchange.getAttribute(
+                ServerWebExchangeUtils.GATEWAY_ORIGINAL_REQUEST_URL_ATTR
+        );
+
+        String path = urlsOriginales != null && !urlsOriginales.isEmpty()
+                ? urlsOriginales.iterator().next().getPath()
+                : exchange.getRequest().getURI().getPath();
 
         ErrorResponse error = new ErrorResponse(
                 LocalDateTime.now().truncatedTo(ChronoUnit.SECONDS),
                 503,
                 "Service Unavailable",
                 "SERVICIO_NO_DISPONIBLE",
-                "El servicio destino no está disponible temporalmente. Intente nuevamente más tarde.",
-                "/api",
+                "El servicio destino no esta disponible temporalmente. Intente nuevamente mas tarde.",
+                path,
                 List.of()
         );
 

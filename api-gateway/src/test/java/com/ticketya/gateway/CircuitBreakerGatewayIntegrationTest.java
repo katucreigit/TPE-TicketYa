@@ -25,7 +25,8 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "MS_AUTH_URL=http://127.0.0.1:1",
                 "MS_RESERVAS_URL=http://127.0.0.1:1",
                 "MS_EVENTOS_URL=http://127.0.0.1:1",
-                "MS_VENTAS_URL=http://127.0.0.1:1"
+                "MS_VENTAS_URL=http://127.0.0.1:1",
+                "MS_NOTIFICACIONES_URL=http://127.0.0.1:1"
         }
 )
 class CircuitBreakerGatewayIntegrationTest {
@@ -45,6 +46,7 @@ class CircuitBreakerGatewayIntegrationTest {
         assertThat(circuitBreakerRegistry.find("reservas")).isPresent();
         assertThat(circuitBreakerRegistry.find("eventos")).isPresent();
         assertThat(circuitBreakerRegistry.find("ventas")).isPresent();
+        assertThat(circuitBreakerRegistry.find("notificaciones")).isPresent();
     }
 
     @Test
@@ -85,6 +87,11 @@ class CircuitBreakerGatewayIntegrationTest {
     @Test
     void debeAbrirCircuitoVentasCuandoMicroservicioAcumulaFallos() throws Exception {
         verificarCircuitoAbierto("ventas", "/api/compras", "GET", true);
+    }
+
+    @Test
+    void debeAbrirCircuitoNotificacionesCuandoMicroservicioAcumulaFallos() throws Exception {
+        verificarCircuitoAbierto("notificaciones", "/api/notificaciones", "GET", true);
     }
 
     private void verificarCircuitoAbierto(

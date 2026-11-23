@@ -29,7 +29,7 @@ class ApiGatewayApplicationTests {
                 .collectList()
                 .block();
 
-        assertThat(rutas).hasSize(5);
+        assertThat(rutas).hasSize(6);
 
         assertThat(rutas)
                 .extracting(Route::getId)
@@ -38,7 +38,8 @@ class ApiGatewayApplicationTests {
                         "reservas-disponibilidad",
                         "reservas",
                         "eventos",
-                        "ventas"
+                        "ventas",
+                        "notificaciones"
                 );
     }
 

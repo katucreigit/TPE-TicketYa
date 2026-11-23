@@ -10,6 +10,7 @@
 | **ms-ventas** | 8083 | `db_ventas` | Orquesta la compra: valida la reserva, cobra con la pasarela (mock), confirma, emite entradas con QR; idempotencia; devoluciones y reintegros por cancelación de evento | 4, 7 |
 | **ms-notificaciones** (E2) | 8085 | `db_notificaciones` (MongoDB) | Recibe pedidos de notificación de los demás servicios, los guarda y los envía por email simulado con reintentos; deduplicación por clave; consulta para administradores | 11 |
 | **ms-fila** (E2) | 8086 | Redis 7 | Fila virtual por evento: ingreso en orden de llegada, posición, habilitación por tandas con ventana de compra y consulta interna para ms-reservas | 6 |
+| **ms-recomendaciones** (E2) | 8087 | `db_recomendaciones` (MongoDB) | Preferencias de cada cliente, registro de compras confirmadas que avisa ms-ventas, recomendaciones por puntaje y "también compraron" | 10 |
 
 Cada servicio es un proyecto Spring Boot independiente (su propio `pom.xml`) que se construye y ejecuta por separado. Cada uno tiene su propia base relacional (schemas separados, levantadas con Docker). La pasarela de pagos es un componente mock dentro de ms-ventas (`PagoGateway` con implementación `MockPagoGateway`).
 
@@ -23,6 +24,7 @@ Resumen de recursos. El detalle completo (parámetros, códigos de respuesta y e
 | ms-reservas | `/eventos/{id}/disponibilidad`, `/eventos/{id}/sectores/{sid}/asientos`, `/reservas`, `/reservas/{id}` |
 | ms-ventas | `/compras`, `/compras/{id}`, `/entradas`, `/entradas/{id}`, `/entradas/validar`, `/devoluciones`, `/devoluciones/{id}/aprobar`, `/devoluciones/{id}/rechazar` |
 | ms-fila | `/fila/eventos/{id}/activar`, `/fila/eventos/{id}/desactivar`, `/fila/eventos/{id}/ingresar`, `/fila/eventos/{id}/posicion` |
+| ms-recomendaciones | `/preferencias`, `/recomendaciones`, `/recomendaciones/eventos/{id}/tambien-compraron` |
 
 ### Rutas del API Gateway
 
@@ -35,6 +37,7 @@ El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondie
 | `/api/eventos/*/disponibilidad`, `/api/eventos/*/sectores/*/asientos`, `/api/reservas/**` | ms-reservas `:8082` |
 | `/api/compras/**`, `/api/entradas/**`, `/api/devoluciones/**` | ms-ventas `:8083` |
 | `/api/fila/**` | ms-fila `:8086` |
+| `/api/preferencias/**`, `/api/recomendaciones/**` | ms-recomendaciones `:8087` |
 | `/internal/**` | no se enruta (`404`) |
 
 Las rutas de disponibilidad y asientos pertenecen a ms-reservas pero comparten el prefijo `/api/eventos/`. Por eso deben declararse **antes** que `/api/eventos/**` en la configuración del gateway, para que tengan prioridad.
@@ -48,7 +51,7 @@ El Gateway recibe el header `X-Correlation-Id` o genera uno nuevo si no fue envi
 El API Gateway incorpora mecanismos de tolerancia a fallos para evitar esperas prolongadas y controlar la indisponibilidad de los microservicios.
 
 - **Timeouts HTTP:** limita el tiempo de conexión a 2000 ms y el tiempo de espera de respuesta a 5 segundos.
-- **Circuit Breaker:** utiliza circuitos independientes para `ms-auth`, `ms-reservas`, `ms-eventos`, `ms-ventas` y `ms-fila`. Cada circuito evalúa una ventana de 10 llamadas, requiere al menos 5 para calcular la tasa de fallos y se abre cuando esta alcanza el 50%.
+- **Circuit Breaker:** utiliza circuitos independientes para `ms-auth`, `ms-reservas`, `ms-eventos`, `ms-ventas`, `ms-fila` y `ms-recomendaciones`. Cada circuito evalúa una ventana de 10 llamadas, requiere al menos 5 para calcular la tasa de fallos y se abre cuando esta alcanza el 50%.
 - **Recuperación:** permanece abierto durante 10 segundos y luego pasa a `HALF_OPEN`, donde permite hasta 3 llamadas de prueba para determinar si el servicio se recuperó.
 - **Fallback:** cuando una ruta no puede completar la solicitud por la indisponibilidad del destino, devuelve HTTP 503 (`Service Unavailable`) con el código `SERVICIO_NO_DISPONIBLE` y un mensaje informativo.
 - **Manejo global de errores:** el Gateway también cuenta con un manejador para errores de conexión, resolución de host y timeout que llegan al filtro global.
@@ -72,6 +75,8 @@ Dependencias síncronas entre servicios (todas REST):
 | ms-reservas (E2) | ms-fila | Antes de cada reserva, consultar si el cliente está habilitado en la fila virtual del evento. Timeout de 1 s; si falla, la reserva sigue (fail-open) |
 | ms-ventas | ms-reservas | Consultar la reserva, confirmarla, liberarla, devolver lugares |
 | ms-ventas | ms-eventos | Obtener precios, estado y fecha del evento al comprar |
+| ms-ventas (E2) | ms-recomendaciones | Avisar cada compra confirmada (`POST /internal/compras`). Best-effort: timeouts de 500 ms y 1000 ms; si falla, la compra sigue igual |
+| ms-recomendaciones (E2) | ms-eventos | Leer el catálogo publicado (`GET /eventos`), con copia en memoria de 30 s; si falla, usa la última copia o una lista vacía (`degradado: true`) |
 | ms-ventas, ms-eventos (E2, pendiente) | ms-notificaciones | Pedir notificaciones de compra confirmada, evento cancelado o modificado y artista favorito en la ciudad |
 
 Las rutas `/internal/**` solo se invocan entre servicios; el gateway no las expone.
@@ -152,7 +157,7 @@ Java 21 y Spring Boot 3 (web, data-jpa, validation), Spring Cloud Gateway, sprin
 
 ## 8. Fila virtual (E2)
 
-Funcionalidad 6, en una versión simplificada. En eventos de alta demanda, un `ADMIN` u `ORGANIZADOR` activa la fila del evento con un tamaño de tanda y los segundos entre tandas. Los clientes ingresan y consultan su posición. Cada `segundosEntreTandas`, los primeros `tamanoTanda` clientes en espera quedan habilitados durante una ventana de compra de 10 minutos; si no reservan en ese tiempo, pierden el turno. El detalle completo está en `openspec/changes/add-fila-virtual/design.md`.
+Funcionalidad 6, en una versión simplificada. En eventos de alta demanda, un `ADMIN` u `ORGANIZADOR` activa la fila del evento con un tamaño de tanda y los segundos entre tandas. Los clientes ingresan y consultan su posición. Cada `segundosEntreTandas`, los primeros `tamanoTanda` clientes en espera quedan habilitados durante una ventana de compra de 10 minutos; si no reservan en ese tiempo, pierden el turno. El detalle completo está en `openspec/changes/archive/2026-11-23-add-fila-virtual/design.md`.
 
 **Por qué Redis.** La fila es un estado efímero, con mucha escritura justo en la apertura de la venta:
 
@@ -179,3 +184,41 @@ Funcionalidad 6, en una versión simplificada. En eventos de alta demanda, un `A
 - Redis corre en un solo nodo con AOF.
 - La fila se activa manualmente y no se valida que el organizador sea el dueño del evento.
 - El control se hace solo al reservar, no al pagar. Alcanza porque para comprar hace falta una reserva.
+
+## 9. Preferencias y recomendaciones (E2)
+
+Funcionalidad 10 (US-24 y US-25), sin machine learning. Cada cliente guarda sus tipos de evento, artistas favoritos y ciudad. `ms-recomendaciones` le sugiere eventos `PUBLICADO` que todavía no compró, ordenados por un puntaje explicable, y responde "quienes compraron X también compraron Y". El detalle está en `openspec/changes/add-preferencias-recomendaciones/design.md`.
+
+**Por qué MongoDB.** Se reutiliza el contenedor `mongo`, con la base propia `db_recomendaciones`:
+
+- Las preferencias son un documento por cliente (`_id` = clienteId) con dos listas y un campo opcional. Sumar otro criterio no requiere migrar un esquema.
+- Cada compra es un documento con `eventoIds` como arreglo, y un índice multikey responde "quiénes compraron el evento X" sin tablas intermedias.
+- No hay joins. Los conteos de popularidad y de compradores en común se hacen con el *aggregation pipeline* (`$match`, `$unwind`, `$group`) dentro de la base.
+
+**Puntaje.** Es una función pura, probada con pruebas unitarias:
+
+| Componente | Puntos | Motivo |
+|---|---|---|
+| tipo en las preferencias | 3 | `TIPO` |
+| algún participante es un artista favorito | 3 | `ARTISTA` |
+| ciudad igual a la de las preferencias | 2 | `CIUDAD` |
+| compradores en común / máximo entre los candidatos | hasta 2 | `TAMBIEN_COMPRARON` |
+| compradores / máximo entre los candidatos | hasta 1 | `POPULAR` |
+
+Una preferencia explícita siempre pesa más que la popularidad. Si el cliente no tiene preferencias ni compras, gana la popularidad; si nadie compró nada, el desempate por fecha devuelve los próximos eventos.
+
+**Alimentación desde ms-ventas.** `CompraService.notificarCompraConfirmada` es el punto común de los tres caminos que confirman una compra (directa, reintento y reconciliación). Ahí, además de notificar, se avisa a `ms-recomendaciones` con `POST /internal/compras`:
+
+- Copia el enfoque de `NotificacionesClient`: timeouts cortos, nunca lanza y deja la advertencia `RECOMENDACIONES_NO_DISPONIBLE` con el `correlationId` si falla.
+- El registro es idempotente por `compraId`, que es el `_id` del documento.
+
+**Catálogo con fallback.** La lista de eventos viene de `GET /eventos` de ms-eventos, paginada de a 100 y con una copia en memoria de 30 segundos. Si ms-eventos no responde, se usa la última copia aunque haya vencido, o una lista vacía. La respuesta es siempre `200`, con `degradado: true`; nunca `500`.
+
+**Simplificaciones:**
+
+- Puntaje lineal con pesos fijos en lugar de modelos de machine learning.
+- Aviso HTTP best-effort en lugar de un broker de mensajes.
+- Solo cuentan las compras confirmadas desde el despliegue, sin importar el historial anterior.
+- Las devoluciones no restan compras.
+- La popularidad no decae con el tiempo.
+- El catálogo completo se guarda en memoria, con un tope de 2000 eventos.

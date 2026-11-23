@@ -36,9 +36,10 @@ Incluye todo lo de la Entrega 1 más:
 | `ms-ventas` | 8083 | `db_ventas` (5435) | Compras, pagos, entradas con QR, devoluciones y reintegros |
 | `ms-notificaciones` | 8085 | `db_notificaciones` (MongoDB, 27017) | Notificaciones a clientes (email simulado) con reintentos y deduplicación |
 | `ms-fila` | 8086 | Redis (6379) | Fila virtual para eventos de alta demanda: posición y habilitación por tandas |
+| `ms-recomendaciones` | 8087 | `db_recomendaciones` (MongoDB, 27017) | Preferencias de clientes y recomendaciones de eventos por puntaje y "también compraron" |
 | `frontend` | 4200 | - | Interfaz web en Angular 19 que consume la API del gateway |
 
-Cada microservicio tiene su propia base (PostgreSQL, MongoDB en el caso de `ms-notificaciones` o Redis en el de `ms-fila`) y no comparte datos con los demás.
+Cada microservicio tiene su propia base (PostgreSQL, MongoDB en el caso de `ms-notificaciones` y `ms-recomendaciones`, o Redis en el de `ms-fila`) y no comparte datos con los demás.
 Los endpoints `/internal/**` se usan solo entre servicios y el gateway no los expone.
 El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
@@ -87,10 +88,10 @@ Desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-Levanta 13 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), MongoDB (`mongo`, 27017), Redis (`redis`, 6379), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084), `ms-notificaciones` (8085), `ms-fila` (8086) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+Levanta 14 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), MongoDB (`mongo`, 27017), Redis (`redis`, 6379), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084), `ms-notificaciones` (8085), `ms-fila` (8086), `ms-recomendaciones` (8087) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
 
 - Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
-- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los siete antes de usar la API.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los ocho antes de usar la API.
 - Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
 - `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
 
@@ -119,6 +120,7 @@ docker build -t ticketya/ms-eventos ms-eventos
    cd ms-auth      && mvn spring-boot:run
    cd ms-notificaciones && mvn spring-boot:run
    cd ms-fila      && mvn spring-boot:run
+   cd ms-recomendaciones && mvn spring-boot:run
    cd api-gateway  && mvn spring-boot:run
    ```
 
@@ -135,13 +137,14 @@ Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cam
 | Variable | Servicio | Valor por defecto |
 |---|---|---|
 | `DB_URL`, `DB_USER`, `DB_PASSWORD` | los ms con PostgreSQL | `localhost` en el puerto de su base, usuario `ticketya` |
-| `MONGO_URI` | `ms-notificaciones` | `mongodb://ticketya:ticketya@localhost:27017/db_notificaciones?authSource=admin` |
+| `MONGO_URI` | `ms-notificaciones`, `ms-recomendaciones` | `mongodb://ticketya:ticketya@localhost:27017/<base>?authSource=admin` (`db_notificaciones` o `db_recomendaciones`) |
 | `MS_AUTH_URL` | `api-gateway` | `http://localhost:8084` |
 | `JWT_SECRET` | `api-gateway`, `ms-auth` | Clave de desarrollo (Base64) de sus `application.yml`; tiene que ser la misma en los dos. Para otro entorno, definirla en el shell o en un `.env` sin versionar |
-| `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas` | `http://localhost:8081` |
+| `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas`, `ms-recomendaciones` | `http://localhost:8081` |
 | `MS_RESERVAS_URL` | `api-gateway`, `ms-eventos`, `ms-ventas` | `http://localhost:8082` |
 | `MS_VENTAS_URL` | `api-gateway`, `ms-eventos` | `http://localhost:8083` |
 | `MS_FILA_URL` | `api-gateway`, `ms-reservas` | `http://localhost:8086` |
+| `MS_RECOMENDACIONES_URL` | `api-gateway`, `ms-ventas` | `http://localhost:8087` |
 | `REDIS_HOST`, `REDIS_PORT` | `ms-fila` | `localhost`, `6379` |
 
 ### Documentación interactiva
@@ -154,6 +157,7 @@ Cada servicio publica su documentación Swagger una vez iniciado:
 - ms-ventas: <http://localhost:8083/swagger-ui.html>
 - ms-notificaciones: <http://localhost:8085/swagger-ui.html>
 - ms-fila: <http://localhost:8086/swagger-ui.html>
+- ms-recomendaciones: <http://localhost:8087/swagger-ui.html>
 
 El contrato completo de la API pública está en [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0).
 
@@ -264,7 +268,32 @@ Para eventos de alta demanda, `ms-fila` ordena el acceso a la compra. Mientras l
 4. Cada `segundosEntreTandas`, los primeros `tamanoTanda` clientes en espera quedan habilitados por 10 minutos. Un cliente habilitado reserva normalmente con `POST /api/reservas`; si no está habilitado, la reserva responde `403 FILA_NO_HABILITADO`. Si no reserva dentro de la ventana, pierde el turno y tiene que volver a ingresar.
 5. `POST /api/fila/eventos/42/desactivar` termina la fila y cualquier cliente vuelve a poder reservar.
 
-Si `ms-fila` no responde en 1 segundo, `ms-reservas` deja pasar la reserva y registra una advertencia `FILA_NO_DISPONIBLE` (fail-open): la fila nunca frena las ventas, y la garantía anti doble venta sigue en la base de `ms-reservas`. El diseño está en `docs/arquitectura.md` y en `openspec/changes/add-fila-virtual/design.md`.
+Si `ms-fila` no responde en 1 segundo, `ms-reservas` deja pasar la reserva y registra una advertencia `FILA_NO_DISPONIBLE` (fail-open): la fila nunca frena las ventas, y la garantía anti doble venta sigue en la base de `ms-reservas`. El diseño está en `docs/arquitectura.md` y en `openspec/changes/archive/2026-11-23-add-fila-virtual/design.md`.
+
+## Preferencias y recomendaciones
+
+`ms-recomendaciones` guarda las preferencias de cada cliente y le sugiere eventos publicados. Todas las rutas pasan por el gateway con JWT:
+
+- `PUT /api/preferencias` guarda los tipos de evento, los artistas favoritos y la ciudad, reemplazando las anteriores. `GET /api/preferencias` las devuelve; si nunca las guardaste, vienen vacías.
+
+  ```
+  PUT http://localhost:8080/api/preferencias
+  Content-Type: application/json
+
+  { "tipos": ["RECITAL"], "artistas": ["Los Andariegos"], "ciudad": "Tandil" }
+  ```
+
+- `GET /api/recomendaciones?limite=10` (rol `CLIENTE`) lista los eventos publicados que todavía no compraste, ordenados por puntaje. Cada uno trae sus `motivos`:
+  - `TIPO` +3, `ARTISTA` +3, `CIUDAD` +2: coincidencia con tus preferencias.
+  - `TAMBIEN_COMPRARON`, hasta +2: lo compraron otros clientes con compras parecidas a las tuyas.
+  - `POPULAR`, hasta +1: cantidad de compradores.
+
+  Sin preferencias ni compras, devuelve los eventos más populares.
+- `GET /api/recomendaciones/eventos/{id}/tambien-compraron` devuelve qué otros eventos compraron los clientes que compraron ese evento.
+
+Cada compra confirmada en `ms-ventas` se avisa a `ms-recomendaciones` (`POST /internal/compras`) en modo best-effort. Si el aviso falla, la compra sigue igual y queda la advertencia `RECOMENDACIONES_NO_DISPONIBLE`. Solo cuentan las compras confirmadas desde que el servicio está desplegado.
+
+Si `ms-eventos` no responde, las recomendaciones usan la última copia del catálogo o una lista vacía, y responden `200` con `"degradado": true`. El diseño está en `docs/arquitectura.md` y en `openspec/changes/add-preferencias-recomendaciones/design.md`.
 
 ## Pruebas
 
@@ -277,10 +306,11 @@ cd ms-reservas && mvn test
 cd ms-ventas   && mvn test
 cd ms-notificaciones && mvn test
 cd ms-fila     && mvn test
+cd ms-recomendaciones && mvn test
 cd api-gateway && mvn test
 ```
 
-La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa. Las de `ms-fila` lanzan 200 ingresos simultáneos (posiciones exactamente del 1 al 200) y varios procesos de habilitación a la vez (nadie queda habilitado dos veces). Las pruebas de `ms-reservas`, `ms-notificaciones` y `ms-fila` usan Testcontainers (PostgreSQL 16, MongoDB 7 y Redis 7), así que necesitan Docker en ejecución.
+La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa. Las de `ms-fila` lanzan 200 ingresos simultáneos (posiciones exactamente del 1 al 200) y varios procesos de habilitación a la vez (nadie queda habilitado dos veces). Las pruebas de `ms-reservas`, `ms-ventas`, `ms-notificaciones`, `ms-fila` y `ms-recomendaciones` usan Testcontainers (PostgreSQL 16, MongoDB 7 y Redis 7), así que necesitan Docker en ejecución.
 
 ## Documentación del proyecto
 

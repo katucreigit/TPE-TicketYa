@@ -15,6 +15,7 @@ info:
     | Disponibilidad, Reservas | ms-reservas | 8082 |
     | Compras, Entradas, Devoluciones | ms-ventas | 8083 |
     | Fila | ms-fila | 8086 |
+    | Preferencias, Recomendaciones | ms-recomendaciones | 8087 |
 
     Las rutas `/api/eventos/{eventoId}/disponibilidad` y `/api/eventos/{eventoId}/sectores/{sectorId}/asientos`
     pertenecen a ms-reservas aunque comparten el prefijo `/api/eventos/`: en el gateway deben declararse antes
@@ -62,6 +63,10 @@ tags:
     description: Consulta administrativa de las notificaciones enviadas a clientes (ms-notificaciones)
   - name: Fila
     description: Fila virtual por evento para ventas de alta demanda (ms-fila)
+  - name: Preferencias
+    description: Tipos de evento, artistas favoritos y ciudad del cliente (ms-recomendaciones)
+  - name: Recomendaciones
+    description: Eventos sugeridos por preferencias, historial y popularidad (ms-recomendaciones)
   - name: Internos
     description: Endpoints entre microservicios. No pasan por el gateway.
 
@@ -1781,6 +1786,169 @@ paths:
         '503':
           $ref: '#/components/responses/FilaNoDisponible'
 
+  # ------------------------------------------------------------------ PREFERENCIAS Y RECOMENDACIONES
+  /preferencias:
+    get:
+      tags: [Preferencias]
+      operationId: obtenerPreferencias
+      summary: Ver mis preferencias (CLIENTE)
+      description: Si el cliente nunca guardó preferencias responde `200` con listas vacías, `ciudad` y `actualizadaEn` en `null`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      responses:
+        '200':
+          description: Preferencias del cliente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferencias'
+              examples:
+                conPreferencias:
+                  summary: Con preferencias
+                  value: { clienteId: '101', tipos: [RECITAL, TEATRO], artistas: [Los Andariegos], ciudad: Tandil, actualizadaEn: '2026-12-01T20:00:00Z' }
+                sinPreferencias:
+                  summary: Nunca las guardó
+                  value: { clienteId: '202', tipos: [], artistas: [], ciudad: null, actualizadaEn: null }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Preferencias]
+      operationId: guardarPreferencias
+      summary: Guardar mis preferencias (CLIENTE)
+      description: |
+        **Reemplaza** las preferencias anteriores. Un campo ausente se guarda vacío (`[]` o `null`) y los valores
+        repetidos se guardan una vez (artistas comparados sin mayúsculas, tildes ni espacios en los extremos).
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreferenciasRequest'
+            example: { tipos: [RECITAL, TEATRO], artistas: [Los Andariegos], ciudad: Tandil }
+      responses:
+        '200':
+          description: Preferencias guardadas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preferencias'
+        '400':
+          description: Tipo de evento inexistente, artista vacío o de más de 100 caracteres, más de 20 artistas, ciudad de más de 100 caracteres o JSON mal formado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: { timestamp: '2026-12-01T20:00:00', status: 400, error: Bad Request, code: VALIDACION, message: Datos invalidos, path: /preferencias, details: ['tipos.[0] tiene un valor no admitido: OPERA'] }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /recomendaciones:
+    get:
+      tags: [Recomendaciones]
+      operationId: recomendaciones
+      summary: Eventos recomendados para mí (CLIENTE)
+      description: |
+        Eventos `PUBLICADO` que el cliente no compró, ordenados por `puntaje` (luego por fecha y por id):
+
+        | Componente | Puntos | Motivo |
+        |---|---|---|
+        | tipo en mis preferencias | 3 | `TIPO` |
+        | algún participante es un artista favorito | 3 | `ARTISTA` |
+        | ciudad igual a la mía | 2 | `CIUDAD` |
+        | compradores en común / máximo entre los candidatos | hasta 2 | `TAMBIEN_COMPRARON` |
+        | compradores del evento / máximo entre los candidatos | hasta 1 | `POPULAR` |
+
+        Sin preferencias ni historial devuelve los más populares; si nadie compró nada, los más próximos.
+        Si ms-eventos no responde, usa la última copia del catálogo (o una lista vacía) con `degradado: true`; nunca `500`.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Recomendaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recomendaciones'
+              example:
+                degradado: false
+                eventos:
+                  - { eventoId: 2, nombre: Hamlet, tipo: TEATRO, ciudad: Azul, fechaHora: '2027-03-11T21:00:00', participantes: [Elenco], puntaje: 3.0, motivos: [TIPO] }
+                  - { eventoId: 1, nombre: Festival de Verano, tipo: RECITAL, ciudad: Rosario, fechaHora: '2027-03-01T21:00:00', participantes: [Banda X], puntaje: 1.0, motivos: [POPULAR] }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /recomendaciones/eventos/{eventoId}/tambien-compraron:
+    get:
+      tags: [Recomendaciones]
+      operationId: tambienCompraron
+      summary: Quienes compraron este evento también compraron (cualquier rol autenticado)
+      description: |
+        Otros eventos `PUBLICADO` comprados por clientes que compraron `eventoId`, con `compradoresEnComun`
+        (clientes distintos), de mayor a menor. Lista vacía si nadie compró el evento. Mismo fallback que `/recomendaciones`.
+      parameters:
+        - $ref: '#/components/parameters/EventoIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - $ref: '#/components/parameters/Limite'
+      responses:
+        '200':
+          description: Eventos comprados en común
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TambienCompraron'
+              example:
+                eventoId: 42
+                degradado: false
+                eventos:
+                  - { eventoId: 43, nombre: Recital Y, tipo: RECITAL, ciudad: Tandil, fechaHora: '2027-03-01T21:00:00', participantes: [], compradoresEnComun: 2 }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /internal/compras:
+    servers:
+      - url: http://localhost:8087
+        description: ms-recomendaciones (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoRegistrarCompra
+      summary: "[ms-ventas → ms-recomendaciones] Registrar una compra confirmada"
+      description: |
+        Idempotente por `compraId`: un aviso repetido (también simultáneo) responde `204` sin crear otro registro.
+        ms-ventas lo llama en modo best-effort (timeout de conexión 500 ms y de lectura 1000 ms): si falla, la compra
+        no se ve afectada y queda la advertencia `RECOMENDACIONES_NO_DISPONIBLE` con el `correlationId`.
+      parameters:
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Identificador de correlación de la compra
+          schema: { type: string }
+          example: abc-123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompraRegistradaRequest'
+            example: { compraId: 9f1c2d3e-0000-4000-8000-000000000055, clienteId: '101', eventoIds: [42] }
+      responses:
+        '204':
+          description: Compra registrada (nueva o ya existente)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
 # ====================================================================== COMPONENTES
 components:
   parameters:
@@ -1848,6 +2016,11 @@ components:
       in: query
       description: Tamaño de página
       schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Limite:
+      name: limite
+      in: query
+      description: Cantidad máxima de eventos a devolver
+      schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
 
   responses:
     BadRequest:
@@ -2391,6 +2564,84 @@ components:
       properties:
         activa: { type: boolean, example: true }
         habilitado: { type: boolean, example: false }
+
+    # ---- preferencias y recomendaciones
+    PreferenciasRequest:
+      type: object
+      description: Todos los campos son opcionales; el ausente se guarda vacío.
+      properties:
+        tipos:
+          type: array
+          items: { $ref: '#/components/schemas/TipoEvento' }
+        artistas:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 100 }
+          example: [Los Andariegos]
+        ciudad: { type: string, maxLength: 100, nullable: true, example: Tandil }
+    Preferencias:
+      type: object
+      properties:
+        clienteId: { type: string, example: '101' }
+        tipos:
+          type: array
+          items: { $ref: '#/components/schemas/TipoEvento' }
+        artistas: { type: array, items: { type: string }, example: [Los Andariegos] }
+        ciudad: { type: string, nullable: true, example: Tandil }
+        actualizadaEn: { type: string, format: date-time, nullable: true, example: '2026-12-01T20:00:00Z' }
+    MotivoRecomendacion:
+      type: string
+      enum: [TIPO, ARTISTA, CIUDAD, TAMBIEN_COMPRARON, POPULAR]
+    EventoRecomendado:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 2 }
+        nombre: { type: string, example: Hamlet }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        ciudad: { type: string, example: Azul }
+        fechaHora: { type: string, format: date-time, example: '2027-03-11T21:00:00' }
+        participantes: { type: array, items: { type: string }, example: [Elenco] }
+        puntaje: { type: number, format: double, description: Dos decimales, example: 3.0 }
+        motivos:
+          type: array
+          items: { $ref: '#/components/schemas/MotivoRecomendacion' }
+    Recomendaciones:
+      type: object
+      properties:
+        degradado: { type: boolean, description: true si ms-eventos no respondió y se usó la última copia del catálogo o una lista vacía, example: false }
+        eventos:
+          type: array
+          items: { $ref: '#/components/schemas/EventoRecomendado' }
+    EventoTambienComprado:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 43 }
+        nombre: { type: string, example: Recital Y }
+        tipo: { $ref: '#/components/schemas/TipoEvento' }
+        ciudad: { type: string, example: Tandil }
+        fechaHora: { type: string, format: date-time, example: '2027-03-01T21:00:00' }
+        participantes: { type: array, items: { type: string } }
+        compradoresEnComun: { type: integer, format: int64, example: 2 }
+    TambienCompraron:
+      type: object
+      properties:
+        eventoId: { type: integer, format: int64, example: 42 }
+        degradado: { type: boolean, example: false }
+        eventos:
+          type: array
+          items: { $ref: '#/components/schemas/EventoTambienComprado' }
+    CompraRegistradaRequest:
+      type: object
+      required: [compraId, clienteId, eventoIds]
+      properties:
+        compraId: { type: string, maxLength: 100, example: 9f1c2d3e-0000-4000-8000-000000000055 }
+        clienteId: { type: string, maxLength: 100, example: '101' }
+        eventoIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: integer, format: int64, minimum: 1 }
+          example: [42]
 
     PageBase:
       type: object

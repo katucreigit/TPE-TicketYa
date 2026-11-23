@@ -4,6 +4,7 @@ import com.ticketya.ventas.client.EventoRemoto.SnapshotCompra;
 import com.ticketya.ventas.client.EventosClient;
 import com.ticketya.ventas.client.NotificacionesClient;
 import com.ticketya.ventas.client.NotificacionesClient.TipoNotificacion;
+import com.ticketya.ventas.client.RecomendacionesClient;
 import com.ticketya.ventas.client.ReservaRemota;
 import com.ticketya.ventas.client.ReservasClient;
 import com.ticketya.ventas.dto.CompraRequest;
@@ -79,6 +80,8 @@ public class CompraService {
     private final EventosClient eventosClient;
     private final PasarelaPagoService pasarelaPagoService;
     private final NotificacionesClient notificacionesClient;
+    private RecomendacionesClient recomendacionesClient;
+    private boolean avisarRecomendaciones = true;
     private final TransactionTemplate transaccion;
     private final RegistroOperaciones registro;
     private final int maxReintentos;
@@ -389,6 +392,33 @@ public class CompraService {
                 datos,
                 "compra-confirmada-" + aprobada.compraId()
         );
+        registrarEnRecomendaciones(clienteId, eventoId, aprobada);
+    }
+
+    /**
+     * add-preferencias-recomendaciones (design.md D8): este metodo es el punto comun de los tres caminos que
+     * confirman una compra (directa, reintento y reconciliacion), asi que el aviso va aca. Es best-effort: el
+     * cliente nunca lanza y sus timeouts son cortos.
+     */
+    private void registrarEnRecomendaciones(String clienteId, Long eventoId, CompraResponse aprobada) {
+        if (avisarRecomendaciones && recomendacionesClient != null) {
+            recomendacionesClient.registrarCompra(aprobada.compraId().toString(), clienteId, eventoId);
+        }
+    }
+
+    /**
+     * Inyeccion opcional por setter para no cambiar los constructores que usan las pruebas: sin cliente (por
+     * ejemplo en un @WebMvcTest) no se avisa.
+     */
+    @Autowired(required = false)
+    public void setRecomendacionesClient(RecomendacionesClient recomendacionesClient) {
+        this.recomendacionesClient = recomendacionesClient;
+    }
+
+    /** {@code ticketya.recomendaciones.avisar}: true por defecto; el perfil de prueba lo apaga. */
+    @Autowired(required = false)
+    public void setAvisarRecomendaciones(@Value("${ticketya.recomendaciones.avisar:true}") boolean avisar) {
+        this.avisarRecomendaciones = avisar;
     }
 
     private static Map<String, Object> entradaResumen(EntradaResponse entrada) {

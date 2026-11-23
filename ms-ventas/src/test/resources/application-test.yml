@@ -2,3 +2,8 @@ ticketya:
   jobs:
     # Los tests invocan los metodos del job directamente en lugar de esperar al scheduler.
     habilitados: false
+  recomendaciones:
+    # add-preferencias-recomendaciones (design.md D8): las pruebas existentes no conocen a ms-recomendaciones. Sin
+    # esto, cada compra intentaria conectarse a localhost:8087 (en Windows un puerto cerrado tarda cerca de 1 s en
+    # rechazar) y dejaria una advertencia. Las pruebas del aviso lo activan con ticketya.recomendaciones.avisar=true.
+    avisar: false

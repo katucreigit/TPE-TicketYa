@@ -52,6 +52,8 @@ tags:
     description: Entradas emitidas del cliente (ms-ventas)
   - name: Devoluciones
     description: Solicitud, aprobación y rechazo de devoluciones (ms-ventas)
+  - name: Notificaciones
+    description: Consulta administrativa de las notificaciones enviadas a clientes (ms-notificaciones)
   - name: Internos
     description: Endpoints entre microservicios. No pasan por el gateway.
 
@@ -1335,6 +1337,140 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
+  # ------------------------------------------------------------------ NOTIFICACIONES
+  /internal/notificaciones:
+    servers:
+      - url: http://localhost:8085
+        description: ms-notificaciones (directo, sin gateway)
+    post:
+      tags: [Internos]
+      operationId: internoCrearNotificacion
+      summary: "[cualquier ms → ms-notificaciones] Pedir el envío de una notificación"
+      description: |
+        Guarda la notificación `PENDIENTE` y responde `202` sin esperar al envío, que se hace en segundo plano
+        con reintentos (espera creciente, 3 intentos por defecto; después queda `FALLIDA`). Un envío fallido nunca
+        cambia esta respuesta.
+
+        **Deduplicación:** si `claveDeduplicacion` ya existe, responde `202` con el `id` y el estado de la
+        notificación existente, sin crear ni enviar otra (también con pedidos simultáneos).
+
+        **Envío simulado:** el email se escribe en el log. `falla@ticketya.test` falla siempre y
+        `falla-una-vez@ticketya.test` falla solo en el primer intento.
+      parameters:
+        - name: X-Correlation-Id
+          in: header
+          required: false
+          description: Identificador de correlación de la operación en curso. Si falta, se genera uno.
+          schema: { type: string }
+          example: abc-123
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificacionRequest'
+            examples:
+              compraConfirmada:
+                summary: Compra confirmada (ms-ventas)
+                value:
+                  tipo: COMPRA_CONFIRMADA
+                  destinatario: { usuarioId: '101', email: cliente@example.com }
+                  datos: { compraId: 55, eventoId: 42, total: 30000, entradas: [ { entradaId: 901, sector: Platea, asiento: F12 } ] }
+                  claveDeduplicacion: compra-55
+              eventoModificado:
+                summary: Evento modificado (ms-eventos)
+                value:
+                  tipo: EVENTO_MODIFICADO
+                  destinatario: { usuarioId: '101', email: cliente@example.com }
+                  datos: { eventoId: 42, nombre: Recital X, cambios: { fecha: { antes: '2026-12-01T21:00', despues: '2026-12-08T21:00' } } }
+                  claveDeduplicacion: evento-42-modificado-3-usuario-101
+      responses:
+        '202':
+          description: Notificación aceptada (nueva o existente con la misma clave)
+          headers:
+            X-Correlation-Id:
+              description: El identificador recibido o el generado
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificacionAceptada'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          description: Error interno (por ejemplo, MongoDB no disponible). El que llama registra el error y sigue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /notificaciones:
+    servers:
+      - url: http://localhost:8085
+        description: ms-notificaciones (directo; la ruta /api/notificaciones del gateway está pendiente)
+    get:
+      tags: [Notificaciones]
+      operationId: listarNotificaciones
+      summary: Listar notificaciones (ADMIN)
+      description: De la más nueva a la más vieja. Los filtros se combinan.
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - name: usuarioId
+          in: query
+          description: Id del usuario destinatario
+          schema: { type: string }
+          example: '101'
+        - name: tipo
+          in: query
+          schema: { $ref: '#/components/schemas/TipoNotificacion' }
+        - name: estado
+          in: query
+          schema: { $ref: '#/components/schemas/EstadoNotificacion' }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Página de notificaciones
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageNotificacion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /notificaciones/{id}:
+    servers:
+      - url: http://localhost:8085
+        description: ms-notificaciones (directo; la ruta /api/notificaciones del gateway está pendiente)
+    get:
+      tags: [Notificaciones]
+      operationId: obtenerNotificacion
+      summary: Ver el detalle de una notificación (ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/XUserRol'
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          example: 6741f0c2a1b2c3d4e5f60718
+      responses:
+        '200':
+          description: Notificación
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notificacion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
 # ====================================================================== COMPONENTES
 components:
   parameters:
@@ -1782,6 +1918,65 @@ components:
               filas: { type: integer, example: 20 }
               asientosPorFila: { type: integer, example: 30 }
               capacidad: { type: integer, example: 5000 }
+
+    # ---- notificaciones
+    TipoNotificacion:
+      type: string
+      enum: [COMPRA_CONFIRMADA, EVENTO_CANCELADO, EVENTO_MODIFICADO, ARTISTA_FAVORITO_PUBLICO_EVENTO]
+    EstadoNotificacion:
+      type: string
+      enum: [PENDIENTE, ENVIADA, FALLIDA]
+    Destinatario:
+      type: object
+      required: [usuarioId, email]
+      properties:
+        usuarioId: { type: string, example: '101' }
+        email: { type: string, format: email, example: cliente@example.com }
+    NotificacionRequest:
+      type: object
+      required: [tipo, destinatario]
+      properties:
+        tipo: { $ref: '#/components/schemas/TipoNotificacion' }
+        destinatario: { $ref: '#/components/schemas/Destinatario' }
+        datos:
+          type: object
+          additionalProperties: true
+          description: Objeto libre cuya forma depende del tipo; se guarda tal como llega. Si falta, se guarda vacío.
+          example: { compraId: 55, total: 30000 }
+        claveDeduplicacion:
+          type: string
+          maxLength: 200
+          description: Si ya existe una notificación con esta clave, no se crea otra.
+          example: compra-55
+    NotificacionAceptada:
+      type: object
+      properties:
+        id: { type: string, example: 6741f0c2a1b2c3d4e5f60718 }
+        estado: { $ref: '#/components/schemas/EstadoNotificacion' }
+    Notificacion:
+      type: object
+      properties:
+        id: { type: string, example: 6741f0c2a1b2c3d4e5f60718 }
+        tipo: { $ref: '#/components/schemas/TipoNotificacion' }
+        destinatario: { $ref: '#/components/schemas/Destinatario' }
+        datos: { type: object, additionalProperties: true, example: { compraId: 55, total: 30000 } }
+        estado: { $ref: '#/components/schemas/EstadoNotificacion' }
+        intentos: { type: integer, example: 1 }
+        ultimoError: { type: string, nullable: true, example: null }
+        claveDeduplicacion: { type: string, nullable: true, example: compra-55 }
+        correlationId: { type: string, example: abc-123 }
+        creadaEn: { type: string, format: date-time, example: '2026-11-22T18:00:00Z' }
+        actualizadaEn: { type: string, format: date-time, example: '2026-11-22T18:00:01Z' }
+        proximoIntentoEn: { type: string, format: date-time, nullable: true, description: Solo mientras está PENDIENTE }
+        enviadaEn: { type: string, format: date-time, nullable: true, example: '2026-11-22T18:00:01Z' }
+    PageNotificacion:
+      allOf:
+        - $ref: '#/components/schemas/PageBase'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/Notificacion' }
 
     PageBase:
       type: object

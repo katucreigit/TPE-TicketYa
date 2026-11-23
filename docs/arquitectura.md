@@ -8,6 +8,7 @@
 | **ms-eventos** | 8081 | `db_eventos` | Catálogo: lugares, sectores, eventos, participantes, precios por sector, estados, búsqueda multicriterio. Dispara la inicialización del inventario al publicar y el cierre al cancelar | 1, 2, 3, 9 |
 | **ms-reservas** | 8082 | `db_reservas` | Inventario de lugares (asientos y cupos), reservas temporales de 10 minutos, vencimiento, liberación, límite por cliente y **mecanismo anti doble venta** | 4 (reserva), 5 |
 | **ms-ventas** | 8083 | `db_ventas` | Orquesta la compra: valida la reserva, cobra con la pasarela (mock), confirma, emite entradas con QR; idempotencia; devoluciones y reintegros por cancelación de evento | 4, 7 |
+| **ms-notificaciones** (E2) | 8085 | `db_notificaciones` (MongoDB) | Recibe pedidos de notificación de los demás servicios, los guarda y los envía por email simulado con reintentos; deduplicación por clave; consulta para administradores | 11 |
 
 Cada servicio es un proyecto Spring Boot independiente (su propio `pom.xml`) que se construye y ejecuta por separado. Cada uno tiene su propia base relacional (schemas separados, levantadas con Docker). La pasarela de pagos es un componente mock dentro de ms-ventas (`PagoGateway` con implementación `MockPagoGateway`).
 
@@ -67,6 +68,7 @@ Dependencias síncronas entre servicios (todas REST):
 | ms-reservas | ms-eventos | Informar que el evento quedó agotado o volvió a tener lugares |
 | ms-ventas | ms-reservas | Consultar la reserva, confirmarla, liberarla, devolver lugares |
 | ms-ventas | ms-eventos | Obtener precios, estado y fecha del evento al comprar |
+| ms-ventas, ms-eventos (E2, pendiente) | ms-notificaciones | Pedir notificaciones de compra confirmada, evento cancelado o modificado y artista favorito en la ciudad |
 
 Las rutas `/internal/**` solo se invocan entre servicios; el gateway no las expone.
 
@@ -137,6 +139,8 @@ El detalle gráfico está en `secuencia-compra.md`.
 6. **Precios y fecha.** ms-ventas los obtiene de ms-eventos al comprar y los guarda como snapshot en la compra y en la entrada (necesita la fecha para la regla de 72 horas).
 7. **Código QR.** `codigoQr` es un UUID aleatorio, único por entrada; la imagen PNG puede generarse con ZXing en la capa de presentación.
 8. **Relevancia en la búsqueda.** Versión simplificada: coincidencia de `q` en nombre, descripción y participantes, y luego cercanía de la fecha.
+9. **Notificaciones en MongoDB (E2).** Cada notificación es un documento con tipo, destinatario, `datos` libres, estado (`PENDIENTE`, `ENVIADA`, `FALLIDA`), intentos, último error, fechas y `correlationId`. Se eligió MongoDB porque la forma de `datos` cambia según el tipo (una compra lleva sus entradas y un cambio de evento lleva el valor anterior y el nuevo), la escritura es intensa (una cancelación genera un pedido por comprador), no hay joins y las consultas son por usuario y estado, cubiertas con índices compuestos.
+10. **Envío asíncrono con reintentos (E2).** `POST /internal/notificaciones` guarda la notificación y responde `202` sin esperar al envío, así que una falla al notificar nunca afecta la operación del que llama (por ejemplo, la compra). Un procesador periódico toma cada notificación vencida de forma atómica (`findAndModify`) y la envía. Si falla, programa el siguiente intento con espera exponencial (2 s, 4 s) hasta 3 intentos y después la deja `FALLIDA`. Como la espera se guarda en el documento, un reinicio no pierde los pendientes. La deduplicación la garantiza un índice único parcial sobre `claveDeduplicacion`, también con pedidos simultáneos.
 
 ## 7. Stack técnico (E1)
 

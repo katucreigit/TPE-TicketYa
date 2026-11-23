@@ -1,0 +1,18 @@
+package com.ticketya.notificaciones;
+
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.context.annotation.Bean;
+import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.utility.DockerImageName;
+
+/** MongoDB 7 real para los tests de repositorio, servicio y controlador. Nunca Mongo embebido ni mocks de la base. */
+@TestConfiguration(proxyBeanMethods = false)
+public class TestcontainersConfiguration {
+
+    @Bean
+    @ServiceConnection
+    MongoDBContainer mongoContainer() {
+        return new MongoDBContainer(DockerImageName.parse("mongo:7"));
+    }
+}

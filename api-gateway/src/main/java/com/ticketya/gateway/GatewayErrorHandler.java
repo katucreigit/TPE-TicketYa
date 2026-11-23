@@ -1,8 +1,8 @@
-
-
 package com.ticketya.gateway;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
@@ -23,6 +23,9 @@ import java.util.concurrent.TimeoutException;
 @Component
 public class GatewayErrorHandler implements GlobalFilter, Ordered {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(GatewayErrorHandler.class);
+
     private final ObjectMapper objectMapper;
 
     public GatewayErrorHandler(ObjectMapper objectMapper) {
@@ -38,6 +41,14 @@ public class GatewayErrorHandler implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         return chain.filter(exchange)
                 .onErrorResume(ex -> {
+                    log.error(
+                            "Error procesando solicitud. Metodo={}, path={}, tipo={}",
+                            exchange.getRequest().getMethod(),
+                            exchange.getRequest().getURI().getPath(),
+                            ex.getClass().getName(),
+                            ex
+                    );
+
                     if (esErrorDeConexion(ex)) {
                         return responderServicioNoDisponible(exchange);
                     }

@@ -24,7 +24,7 @@ spring:
                 maxAge: 3600
           httpclient:
             connect-timeout: 2000
-            response-timeout: 5s
+            response-timeout: 15s
           # El gateway quita el prefijo /api (StripPrefix=1) y reenvía los headers.
           # /internal/** no tiene ruta.
           routes:
@@ -99,7 +99,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,gateway
+        include: health,gateway,metrics,circuitbreakers
 
 resilience4j:
   circuitbreaker:
@@ -136,3 +136,14 @@ resilience4j:
         waitDurationInOpenState: 10s
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
+
+  timelimiter:
+    instances:
+      auth:
+        timeoutDuration: 20s
+      reservas:
+        timeoutDuration: 20s
+      eventos:
+        timeoutDuration: 20s
+      ventas:
+        timeoutDuration: 20s

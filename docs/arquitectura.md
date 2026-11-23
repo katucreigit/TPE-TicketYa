@@ -9,6 +9,7 @@
 | **ms-reservas** | 8082 | `db_reservas` | Inventario de lugares (asientos y cupos), reservas temporales de 10 minutos, vencimiento, liberación, límite por cliente y **mecanismo anti doble venta** | 4 (reserva), 5 |
 | **ms-ventas** | 8083 | `db_ventas` | Orquesta la compra: valida la reserva, cobra con la pasarela (mock), confirma, emite entradas con QR; idempotencia; devoluciones y reintegros por cancelación de evento | 4, 7 |
 | **ms-notificaciones** (E2) | 8085 | `db_notificaciones` (MongoDB) | Recibe pedidos de notificación de los demás servicios, los guarda y los envía por email simulado con reintentos; deduplicación por clave; consulta para administradores | 11 |
+| **ms-fila** (E2) | 8086 | Redis 7 | Fila virtual por evento: ingreso en orden de llegada, posición, habilitación por tandas con ventana de compra y consulta interna para ms-reservas | 6 |
 
 Cada servicio es un proyecto Spring Boot independiente (su propio `pom.xml`) que se construye y ejecuta por separado. Cada uno tiene su propia base relacional (schemas separados, levantadas con Docker). La pasarela de pagos es un componente mock dentro de ms-ventas (`PagoGateway` con implementación `MockPagoGateway`).
 
@@ -21,6 +22,7 @@ Resumen de recursos. El detalle completo (parámetros, códigos de respuesta y e
 | ms-eventos | `/lugares`, `/lugares/{id}/sectores`, `/eventos`, `/eventos/{id}`, `/eventos/{id}/precios`, `/eventos/{id}/publicar`, `/eventos/{id}/suspender`, `/eventos/{id}/reanudar`, `/eventos/{id}/cancelar`, `/eventos/{id}/sectores` |
 | ms-reservas | `/eventos/{id}/disponibilidad`, `/eventos/{id}/sectores/{sid}/asientos`, `/reservas`, `/reservas/{id}` |
 | ms-ventas | `/compras`, `/compras/{id}`, `/entradas`, `/entradas/{id}`, `/entradas/validar`, `/devoluciones`, `/devoluciones/{id}/aprobar`, `/devoluciones/{id}/rechazar` |
+| ms-fila | `/fila/eventos/{id}/activar`, `/fila/eventos/{id}/desactivar`, `/fila/eventos/{id}/ingresar`, `/fila/eventos/{id}/posicion` |
 
 ### Rutas del API Gateway
 
@@ -32,6 +34,7 @@ El gateway quita el prefijo `/api` y reenvía cada ruta al servicio correspondie
 | `/api/lugares/**`, `/api/eventos/**` | ms-eventos `:8081` |
 | `/api/eventos/*/disponibilidad`, `/api/eventos/*/sectores/*/asientos`, `/api/reservas/**` | ms-reservas `:8082` |
 | `/api/compras/**`, `/api/entradas/**`, `/api/devoluciones/**` | ms-ventas `:8083` |
+| `/api/fila/**` | ms-fila `:8086` |
 | `/internal/**` | no se enruta (`404`) |
 
 Las rutas de disponibilidad y asientos pertenecen a ms-reservas pero comparten el prefijo `/api/eventos/`. Por eso deben declararse **antes** que `/api/eventos/**` en la configuración del gateway, para que tengan prioridad.
@@ -45,7 +48,7 @@ El Gateway recibe el header `X-Correlation-Id` o genera uno nuevo si no fue envi
 El API Gateway incorpora mecanismos de tolerancia a fallos para evitar esperas prolongadas y controlar la indisponibilidad de los microservicios.
 
 - **Timeouts HTTP:** limita el tiempo de conexión a 2000 ms y el tiempo de espera de respuesta a 5 segundos.
-- **Circuit Breaker:** utiliza circuitos independientes para `ms-auth`, `ms-reservas`, `ms-eventos` y `ms-ventas`. Cada circuito evalúa una ventana de 10 llamadas, requiere al menos 5 para calcular la tasa de fallos y se abre cuando esta alcanza el 50%.
+- **Circuit Breaker:** utiliza circuitos independientes para `ms-auth`, `ms-reservas`, `ms-eventos`, `ms-ventas` y `ms-fila`. Cada circuito evalúa una ventana de 10 llamadas, requiere al menos 5 para calcular la tasa de fallos y se abre cuando esta alcanza el 50%.
 - **Recuperación:** permanece abierto durante 10 segundos y luego pasa a `HALF_OPEN`, donde permite hasta 3 llamadas de prueba para determinar si el servicio se recuperó.
 - **Fallback:** cuando una ruta no puede completar la solicitud por la indisponibilidad del destino, devuelve HTTP 503 (`Service Unavailable`) con el código `SERVICIO_NO_DISPONIBLE` y un mensaje informativo.
 - **Manejo global de errores:** el Gateway también cuenta con un manejador para errores de conexión, resolución de host y timeout que llegan al filtro global.
@@ -66,6 +69,7 @@ Dependencias síncronas entre servicios (todas REST):
 | ms-eventos | ms-reservas | Inicializar inventario al publicar; cerrar inventario al suspender o cancelar |
 | ms-eventos | ms-ventas | Notificar la cancelación del evento para reintegrar entradas |
 | ms-reservas | ms-eventos | Informar que el evento quedó agotado o volvió a tener lugares |
+| ms-reservas (E2) | ms-fila | Antes de cada reserva, consultar si el cliente está habilitado en la fila virtual del evento. Timeout de 1 s; si falla, la reserva sigue (fail-open) |
 | ms-ventas | ms-reservas | Consultar la reserva, confirmarla, liberarla, devolver lugares |
 | ms-ventas | ms-eventos | Obtener precios, estado y fecha del evento al comprar |
 | ms-ventas, ms-eventos (E2, pendiente) | ms-notificaciones | Pedir notificaciones de compra confirmada, evento cancelado o modificado y artista favorito en la ciudad |
@@ -145,3 +149,33 @@ El detalle gráfico está en `secuencia-compra.md`.
 ## 7. Stack técnico (E1)
 
 Java 21 y Spring Boot 3 (web, data-jpa, validation), Spring Cloud Gateway, springdoc-openapi, PostgreSQL (o MySQL) en Docker con un schema por servicio, Flyway o `ddl-auto` para el esquema, JUnit 5 y Mockito para pruebas unitarias, Testcontainers para la prueba de concurrencia, Postman para la colección de requests.
+
+## 8. Fila virtual (E2)
+
+Funcionalidad 6, en una versión simplificada. En eventos de alta demanda, un `ADMIN` u `ORGANIZADOR` activa la fila del evento con un tamaño de tanda y los segundos entre tandas. Los clientes ingresan y consultan su posición. Cada `segundosEntreTandas`, los primeros `tamanoTanda` clientes en espera quedan habilitados durante una ventana de compra de 10 minutos; si no reservan en ese tiempo, pierden el turno. El detalle completo está en `openspec/changes/add-fila-virtual/design.md`.
+
+**Por qué Redis.** La fila es un estado efímero, con mucha escritura justo en la apertura de la venta:
+
+- **Atomicidad.** Redis ejecuta los scripts Lua de a uno. Cada operación que lee y escribe (ingresar, habilitar una tanda, vencer turnos) es un script atómico frente a todas las instancias de ms-fila, sin locks distribuidos.
+- **Estructuras ordenadas.** Un *sorted set* por evento guarda a los clientes en espera con su número de llegada (`INCR`). `ZRANK` da la posición y `ZPOPMIN` saca la tanda en orden. Otro *sorted set* guarda a los habilitados con el fin de su ventana como puntaje.
+- **TTL.** Las claves de cada fila vencen solas a las 24 horas sin actividad, así que una fila abandonada no queda para siempre.
+- **Rendimiento.** Trabaja en memoria, así que la consulta que hace ms-reservas en cada reserva no carga a PostgreSQL en el pico.
+
+**Tandas con varias instancias.** El proceso periódico (cada 1 s) corre en todas las instancias. El script de la tanda verifica dentro de Redis si ya llegó `proximaTandaEn`. La primera instancia que lo ejecuta saca la tanda con `ZPOPMIN` y corre `proximaTandaEn` hacia adelante; las demás no hacen nada. Así nadie queda habilitado dos veces y no se adelanta ninguna tanda. Cada habilitación y cada vencimiento se registran una sola vez (`CLIENTE_HABILITADO`, `TURNO_VENCIDO`), porque solo los registra la instancia cuyo script los devolvió.
+
+**Integración con ms-reservas (fail-open).** Antes de abrir la transacción de una reserva, ms-reservas consulta `GET /internal/fila/eventos/{e}/clientes/{c}/estado` con un timeout de 1 s y propaga el `X-Correlation-Id`. Si la fila está activa y el cliente no está habilitado, responde `403 FILA_NO_HABILITADO`. Si ms-fila no responde o falla, la reserva sigue y se registra la advertencia `FILA_NO_DISPONIBLE`:
+
+- La fila ordena el acceso, pero no es una garantía de integridad. La anti doble venta y el límite por cliente siguen en la base de ms-reservas.
+- Con fail-closed, una caída de ms-fila o de Redis frenaría todas las ventas, incluidas las de eventos sin fila.
+- El costo de una caída es que, mientras dura, se puede reservar sin respetar el orden.
+
+**Simplificaciones frente a un sistema real:**
+
+- Se consulta a ms-fila en cada reserva, en lugar de emitir un token de turno firmado.
+- El turno dura toda la ventana y no se consume al comprar.
+- Las tandas son de tamaño fijo, no se adaptan a la capacidad del checkout.
+- No hay protección anti-bots.
+- El cliente consulta su posición periódicamente, en lugar de recibir avisos por WebSocket.
+- Redis corre en un solo nodo con AOF.
+- La fila se activa manualmente y no se valida que el organizador sea el dueño del evento.
+- El control se hace solo al reservar, no al pagar. Alcanza porque para comprar hace falta una reserva.

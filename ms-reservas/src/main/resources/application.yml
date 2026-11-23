@@ -42,6 +42,11 @@ ticketya:
   services:
     eventos-url: ${MS_EVENTOS_URL:http://localhost:8081}
     eventos-timeout-ms: 3000
+    # add-fila-virtual: consulta antes de cada reserva; si ms-fila no responde en este tiempo, se deja pasar (fail-open).
+    fila-url: ${MS_FILA_URL:http://localhost:8086}
+    fila-timeout-ms: 1000
+  fila:
+    consultar: true
   jobs:
     habilitados: true
     intervalo-ms: 30000

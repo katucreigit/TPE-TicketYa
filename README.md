@@ -35,9 +35,10 @@ Incluye todo lo de la Entrega 1 más:
 | `ms-reservas` | 8082 | `db_reservas` (5434) | Inventario, reservas temporales y control de doble venta |
 | `ms-ventas` | 8083 | `db_ventas` (5435) | Compras, pagos, entradas con QR, devoluciones y reintegros |
 | `ms-notificaciones` | 8085 | `db_notificaciones` (MongoDB, 27017) | Notificaciones a clientes (email simulado) con reintentos y deduplicación |
+| `ms-fila` | 8086 | Redis (6379) | Fila virtual para eventos de alta demanda: posición y habilitación por tandas |
 | `frontend` | 4200 | - | Interfaz web en Angular 19 que consume la API del gateway |
 
-Cada microservicio tiene su propia base (PostgreSQL, o MongoDB en el caso de `ms-notificaciones`) y no comparte datos con los demás.
+Cada microservicio tiene su propia base (PostgreSQL, MongoDB en el caso de `ms-notificaciones` o Redis en el de `ms-fila`) y no comparte datos con los demás.
 Los endpoints `/internal/**` se usan solo entre servicios y el gateway no los expone.
 El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
@@ -86,10 +87,10 @@ Desde la raíz del repositorio:
 docker compose up -d --build
 ```
 
-Levanta 11 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), MongoDB (`mongo`, 27017), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084), `ms-notificaciones` (8085) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
+Levanta 13 contenedores: las 4 bases PostgreSQL (5433, 5434, 5435 y 5436), MongoDB (`mongo`, 27017), Redis (`redis`, 6379), `ms-eventos` (8081), `ms-reservas` (8082), `ms-ventas` (8083), `ms-auth` (8084), `ms-notificaciones` (8085), `ms-fila` (8086) y el gateway (8080). Cada servicio se construye con su propio `Dockerfile` (build con Maven y ejecución con JRE 21), así que no hace falta tener Maven ni Java instalados.
 
 - Antes de levantarlo, detener los servicios que estén corriendo desde el IDE para que no choquen los puertos.
-- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los seis antes de usar la API.
+- Cada microservicio espera a que su base esté lista y el gateway arranca al final. Los servicios tardan en iniciar (`ms-auth`, alrededor de 90 segundos): conviene esperar a que `docker compose logs -f` muestre `Started` en los siete antes de usar la API.
 - Dentro de compose los servicios se comunican por nombre de servicio (`http://ms-eventos:8081`, `db-eventos:5432`, etc.), configurado con las variables de la tabla de [Configuración](#configuración).
 - `docker compose down` detiene todo y conserva los datos; `docker compose down -v` borra también las bases, para empezar de cero.
 
@@ -104,10 +105,10 @@ docker build -t ticketya/ms-eventos ms-eventos
 1. Levantar solo las bases de datos (una por servicio):
 
    ```
-   docker compose up -d db-eventos db-reservas db-ventas db-auth mongo
+   docker compose up -d db-eventos db-reservas db-ventas db-auth mongo redis
    ```
 
-   Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436 y un MongoDB 7 en el 27017 (usuario y contraseña `ticketya` en todas).
+   Esto crea cuatro bases PostgreSQL 16 en los puertos 5433, 5434, 5435 y 5436, un MongoDB 7 en el 27017 (usuario y contraseña `ticketya` en todas) y un Redis 7 sin contraseña en el 6379.
 
 2. Iniciar cada servicio en una terminal distinta, desde la raíz del repositorio:
 
@@ -117,6 +118,7 @@ docker build -t ticketya/ms-eventos ms-eventos
    cd ms-ventas    && mvn spring-boot:run
    cd ms-auth      && mvn spring-boot:run
    cd ms-notificaciones && mvn spring-boot:run
+   cd ms-fila      && mvn spring-boot:run
    cd api-gateway  && mvn spring-boot:run
    ```
 
@@ -139,6 +141,8 @@ Los valores por defecto sirven para ejecución local desde el IDE. Se pueden cam
 | `MS_EVENTOS_URL` | `api-gateway`, `ms-reservas`, `ms-ventas` | `http://localhost:8081` |
 | `MS_RESERVAS_URL` | `api-gateway`, `ms-eventos`, `ms-ventas` | `http://localhost:8082` |
 | `MS_VENTAS_URL` | `api-gateway`, `ms-eventos` | `http://localhost:8083` |
+| `MS_FILA_URL` | `api-gateway`, `ms-reservas` | `http://localhost:8086` |
+| `REDIS_HOST`, `REDIS_PORT` | `ms-fila` | `localhost`, `6379` |
 
 ### Documentación interactiva
 
@@ -149,6 +153,7 @@ Cada servicio publica su documentación Swagger una vez iniciado:
 - ms-reservas: <http://localhost:8082/swagger-ui.html>
 - ms-ventas: <http://localhost:8083/swagger-ui.html>
 - ms-notificaciones: <http://localhost:8085/swagger-ui.html>
+- ms-fila: <http://localhost:8086/swagger-ui.html>
 
 El contrato completo de la API pública está en [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.0).
 
@@ -239,6 +244,28 @@ Para probar los reintentos, el envío simulado falla según el email del destina
 
 Todavía no hay ruta en el gateway, y los demás servicios todavía no llaman a `ms-notificaciones`. Esas integraciones están pendientes (ver `openspec/changes/add-notificaciones/tasks.md`).
 
+## Fila virtual
+
+Para eventos de alta demanda, `ms-fila` ordena el acceso a la compra. Mientras la fila de un evento está activa, solo pueden reservar los clientes habilitados. Todas las rutas pasan por el gateway y llevan el token correspondiente:
+
+1. Un `ADMIN` u `ORGANIZADOR` activa la fila del evento:
+
+   ```
+   POST http://localhost:8080/api/fila/eventos/42/activar
+   Content-Type: application/json
+
+   { "tamanoTanda": 50, "segundosEntreTandas": 30 }
+   ```
+
+   El cuerpo es opcional (por defecto 100 clientes cada 60 segundos). La primera tanda sale `segundosEntreTandas` después de activar.
+
+2. Cada `CLIENTE` ingresa con `POST /api/fila/eventos/42/ingresar` y recibe su `posicion`. Si repite el ingreso, conserva su lugar.
+3. Consulta su estado con `GET /api/fila/eventos/42/posicion`: `EN_ESPERA` (con `posicion`), `HABILITADO` (con `habilitadoHasta`), `FUERA_DE_FILA` o `SIN_FILA` si el evento no tiene fila.
+4. Cada `segundosEntreTandas`, los primeros `tamanoTanda` clientes en espera quedan habilitados por 10 minutos. Un cliente habilitado reserva normalmente con `POST /api/reservas`; si no está habilitado, la reserva responde `403 FILA_NO_HABILITADO`. Si no reserva dentro de la ventana, pierde el turno y tiene que volver a ingresar.
+5. `POST /api/fila/eventos/42/desactivar` termina la fila y cualquier cliente vuelve a poder reservar.
+
+Si `ms-fila` no responde en 1 segundo, `ms-reservas` deja pasar la reserva y registra una advertencia `FILA_NO_DISPONIBLE` (fail-open): la fila nunca frena las ventas, y la garantía anti doble venta sigue en la base de `ms-reservas`. El diseño está en `docs/arquitectura.md` y en `openspec/changes/add-fila-virtual/design.md`.
+
 ## Pruebas
 
 Cada servicio se prueba por separado:
@@ -249,10 +276,11 @@ cd ms-eventos  && mvn test
 cd ms-reservas && mvn test
 cd ms-ventas   && mvn test
 cd ms-notificaciones && mvn test
+cd ms-fila     && mvn test
 cd api-gateway && mvn test
 ```
 
-La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa. Las pruebas de `ms-reservas` y `ms-notificaciones` usan Testcontainers (PostgreSQL 16 y MongoDB 7), así que necesitan Docker en ejecución.
+La prueba de concurrencia de `ms-reservas` lanza solicitudes simultáneas por el mismo lugar y verifica que exactamente una resulte exitosa. Las de `ms-fila` lanzan 200 ingresos simultáneos (posiciones exactamente del 1 al 200) y varios procesos de habilitación a la vez (nadie queda habilitado dos veces). Las pruebas de `ms-reservas`, `ms-notificaciones` y `ms-fila` usan Testcontainers (PostgreSQL 16, MongoDB 7 y Redis 7), así que necesitan Docker en ejecución.
 
 ## Documentación del proyecto
 

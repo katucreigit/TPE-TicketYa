@@ -2,3 +2,8 @@ ticketya:
   jobs:
     # Los tests invocan los metodos del job directamente en lugar de esperar al scheduler.
     habilitados: false
+  fila:
+    # add-fila-virtual (design.md D10): las pruebas existentes no conocen a ms-fila. Sin esto, cada reserva intentaria
+    # conectarse a localhost:8086 (en Windows un puerto cerrado tarda cerca de 1 s en rechazar) o a un ms-fila local.
+    # Las pruebas de la fila la activan con ticketya.fila.consultar=true.
+    consultar: false

@@ -3,12 +3,15 @@ package com.ticketya.auth.service;
 import com.ticketya.auth.dto.AuthResponse;
 import com.ticketya.auth.dto.LoginRequest;
 import com.ticketya.auth.dto.RegisterRequest;
+import com.ticketya.auth.dto.UsuarioResponse;
 import com.ticketya.auth.model.Usuario;
 import com.ticketya.auth.repository.UsuarioRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
 
 @Service
 public class AuthService {
@@ -37,6 +40,12 @@ public class AuthService {
         usuarioRepository.save(usuario);
         String token = jwtService.generarToken(usuario.getId(), usuario.getRol().name());
         return new AuthResponse(token, usuario.getId(), usuario.getRol().name());
+    }
+
+    public List<UsuarioResponse> listarUsuarios() {
+        return usuarioRepository.findAll().stream()
+                .map(u -> new UsuarioResponse(u.getId(), u.getEmail(), u.getRol().name()))
+                .toList();
     }
 
     public AuthResponse login(LoginRequest request) {

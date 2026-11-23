@@ -3,10 +3,13 @@ package com.ticketya.auth.controller;
 import com.ticketya.auth.dto.AuthResponse;
 import com.ticketya.auth.dto.LoginRequest;
 import com.ticketya.auth.dto.RegisterRequest;
+import com.ticketya.auth.dto.UsuarioResponse;
 import com.ticketya.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/auth")
@@ -27,5 +30,10 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @GetMapping("/usuarios")
+    public List<UsuarioResponse> listarUsuarios() {
+        return authService.listarUsuarios();
     }
 }

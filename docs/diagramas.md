@@ -1,4 +1,4 @@
-# TicketYa – Diagramas (Entrega 1)
+# TicketYa – Diagramas (Entrega 2)
 
 Todos los diagramas están escritos en [Mermaid](https://mermaid.js.org/) y GitHub los dibuja directamente en esta página. Reflejan el contrato (`openapi.yaml`), las historias de usuario y las decisiones de `arquitectura.md`.
 
@@ -8,43 +8,77 @@ Todos los diagramas están escritos en [Mermaid](https://mermaid.js.org/) y GitH
 
 ## 1. Arquitectura
 
-Los clientes hablan solo con el API Gateway. Cada servicio tiene su propia base de datos y los servicios se llaman entre sí por REST, solo por las rutas `/internal/**`, que el gateway no expone.
+Los clientes hablan solo con el API Gateway. Cada servicio tiene su propia base de datos y los servicios se llaman entre sí por REST, solo por las rutas `/internal/**`, que el gateway no expone. Cada caja es un contenedor de `docker-compose.yml`, con su puerto publicado. Las flechas punteadas son llamadas best-effort o fail-open: si el destino no responde, la operación de origen sigue igual.
 
 ```mermaid
 flowchart LR
-    C([Cliente / Postman])
-    GW["API Gateway<br/>:8080"]
+    C(["Cliente / Postman"])
+    FE["Frontend Angular<br/>:4200"]
+    GW["API Gateway :8080<br/>JWT, circuit breaker<br/>y X-Correlation-Id"]
+
+    subgraph AU["ms-auth :8084"]
+        AUS["Registro, login<br/>y emisión de JWT"]
+        AUDB[("db_auth<br/>PostgreSQL :5436")]
+        AUS --- AUDB
+    end
 
     subgraph EV["ms-eventos :8081"]
-        EVS["Catálogo, publicación,<br/>estados y búsqueda"]
-        EVDB[("db_eventos")]
+        EVS["Catálogo, publicación, estados,<br/>búsqueda y caché Caffeine"]
+        EVDB[("db_eventos<br/>PostgreSQL :5433")]
         EVS --- EVDB
     end
 
     subgraph RS["ms-reservas :8082"]
         RSS["Inventario, reservas temporales,<br/>límite por cliente y anti doble venta"]
-        RSDB[("db_reservas")]
+        RSDB[("db_reservas<br/>PostgreSQL :5434")]
         RSS --- RSDB
     end
 
     subgraph VT["ms-ventas :8083"]
-        VTS["Compra (saga), entradas con QR,<br/>idempotencia y devoluciones"]
-        VTDB[("db_ventas")]
+        VTS["Compra (saga), entradas con QR,<br/>idempotencia, devoluciones<br/>y reporte de ventas"]
+        VTDB[("db_ventas<br/>PostgreSQL :5435")]
         PG["Pasarela de pago (mock)"]
         VTS --- VTDB
         VTS --- PG
     end
 
+    subgraph NT["ms-notificaciones :8085"]
+        NTS["Email simulado con reintentos<br/>y deduplicación"]
+    end
+
+    subgraph FL["ms-fila :8086"]
+        FLS["Fila virtual por evento<br/>y habilitación por tandas"]
+    end
+
+    subgraph RC["ms-recomendaciones :8087"]
+        RCS["Preferencias, recomendaciones<br/>y también compraron"]
+    end
+
+    MONGO[("MongoDB :27017<br/>db_notificaciones<br/>db_recomendaciones")]
+    REDIS[("Redis :6379<br/>claves por evento")]
+
+    NTS --- MONGO
+    RCS --- MONGO
+    FLS --- REDIS
+
     C -->|"/api/**"| GW
+    FE -->|"/api/**"| GW
+    GW -->|"/api/auth"| AUS
     GW -->|"/api/lugares, /api/eventos"| EVS
     GW -->|"/api/reservas, disponibilidad, asientos"| RSS
     GW -->|"/api/compras, entradas, devoluciones"| VTS
+    GW -->|"/api/fila"| FLS
+    GW -->|"/api/preferencias, /api/recomendaciones"| RCS
 
     EVS -->|"inicializar, cerrar y abrir inventario"| RSS
     EVS -->|"cancelación del evento"| VTS
     RSS -->|"aviso de agotado"| EVS
     VTS -->|"consultar, confirmar, liberar y devolver"| RSS
     VTS -->|"precios, estado y fecha"| EVS
+    RSS -.->|"estado del cliente en la fila<br/>(timeout 1 s, fail-open)"| FLS
+    VTS -.->|"compra confirmada y cancelación<br/>(best-effort)"| NTS
+    VTS -.->|"compra confirmada<br/>(best-effort)"| RCS
+    RCS -->|"catálogo publicado<br/>(copia de 30 s y fallback)"| EVS
 ```
 
 ---
@@ -514,4 +548,117 @@ sequenceDiagram
         Note over VT: UNIQUE(entrada_id, tipo):<br/>repetir la cancelación no reintegra dos veces
     end
     EV-->>Ad: 200 evento CANCELADO
+```
+
+### 4.6 Fila virtual: ingreso, tanda y reserva
+
+Las operaciones de la fila son scripts Lua atómicos en Redis, así que el orden y la habilitación son correctos con cualquier cantidad de instancias de `ms-fila`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Or as Organizador
+    actor Cl as Cliente
+    participant GW as API Gateway
+    participant FL as ms-fila
+    participant RD as Redis
+    participant RS as ms-reservas
+
+    Or->>GW: POST /api/fila/eventos/42/activar
+    GW->>FL: POST /fila/eventos/42/activar
+    FL->>RD: script activar (config y proximaTandaEn)
+    FL-->>Or: 200 tamanoTanda, segundosEntreTandas, proximaTandaEn
+
+    Cl->>GW: POST /api/fila/eventos/42/ingresar
+    GW->>FL: POST /fila/eventos/42/ingresar
+    FL->>RD: script ingresar (INCR y ZADD, idempotente)
+    FL-->>Cl: 200 EN_ESPERA, posicion 3
+
+    Cl->>GW: POST /api/reservas (evento 42)
+    GW->>RS: POST /reservas
+    RS->>FL: GET /internal/fila/eventos/42/clientes/{id}/estado
+    FL-->>RS: activa true, habilitado false
+    RS-->>Cl: 403 FILA_NO_HABILITADO
+
+    loop cada 1 s, en cada instancia de ms-fila
+        FL->>RD: script habilitar-tanda
+        Note over FL,RD: solo la primera instancia que llega después<br/>de proximaTandaEn saca la tanda con ZPOPMIN
+    end
+
+    Cl->>GW: GET /api/fila/eventos/42/posicion
+    GW->>FL: GET /fila/eventos/42/posicion
+    FL-->>Cl: 200 HABILITADO, habilitadoHasta (10 min)
+
+    Cl->>GW: POST /api/reservas (evento 42)
+    GW->>RS: POST /reservas
+    alt ms-fila responde
+        RS->>FL: GET /internal/fila/eventos/42/clientes/{id}/estado
+        FL-->>RS: activa true, habilitado true
+        RS-->>Cl: 201 reserva PENDIENTE
+    else ms-fila no responde en 1 s
+        RS--xFL: timeout
+        Note over RS: WARN FILA_NO_DISPONIBLE (fail-open)
+        RS-->>Cl: 201 reserva PENDIENTE
+    end
+```
+
+### 4.7 Aviso de compra confirmada a notificaciones y recomendaciones
+
+Los dos avisos salen de `CompraService.notificarCompraConfirmada`, por donde pasan la compra directa, el reintento y la reconciliación de pagos inciertos. Ninguno de los dos puede cambiar el resultado de la compra.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cl as Cliente
+    participant GW as API Gateway
+    participant VT as ms-ventas
+    participant NT as ms-notificaciones
+    participant RC as ms-recomendaciones
+
+    Cl->>GW: POST /api/compras (Idempotency-Key)
+    GW->>VT: POST /compras
+    Note over VT: saga de la compra (sección 4.1)<br/>entradas emitidas, compra APROBADA
+    VT->>NT: POST /internal/notificaciones (COMPRA_CONFIRMADA)
+    NT-->>VT: 202 notificación PENDIENTE
+    par envío en segundo plano
+        NT->>NT: email simulado, reintentos 2 s y 4 s
+    and registro para recomendaciones
+        VT->>RC: POST /internal/compras (compraId, clienteId, eventoIds)
+        alt ms-recomendaciones responde
+            RC-->>VT: 204 (idempotente por compraId)
+        else falla o tarda más de 1 s
+            RC--xVT: error o timeout
+            Note over VT: WARN RECOMENDACIONES_NO_DISPONIBLE<br/>con compraId y correlationId
+        end
+    end
+    VT-->>Cl: 201 compra APROBADA y entradas
+```
+
+### 4.8 Trazabilidad con X-Correlation-Id
+
+El gateway asigna el identificador y cada servicio que lo maneja lo propaga y lo escribe en sus registros. Con un solo valor se sigue la operación completa en los logs de todos los contenedores. `ms-eventos` todavía no lo registra.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cl as Cliente
+    participant GW as API Gateway
+    participant VT as ms-ventas
+    participant RS as ms-reservas
+    participant EV as ms-eventos
+    participant NT as ms-notificaciones
+
+    Cl->>GW: POST /api/compras (sin X-Correlation-Id)
+    GW->>GW: genera correlationId abc-123
+    GW->>VT: POST /compras, X-Correlation-Id abc-123
+    VT->>RS: GET /reservas/{id}, X-Correlation-Id abc-123
+    VT->>EV: GET /eventos/{id}, X-Correlation-Id abc-123
+    Note over EV: recibe el header pero no lo registra
+    VT->>RS: POST /internal/reservas/{id}/confirmar, X-Correlation-Id abc-123
+    Note over RS: OPERACION_CRITICA RESERVA_CONFIRMADA<br/>correlationId=abc-123
+    VT->>NT: POST /internal/notificaciones, X-Correlation-Id abc-123
+    Note over VT: OPERACION_CRITICA COMPRA_APROBADA<br/>correlationId=abc-123
+    VT-->>GW: 201, X-Correlation-Id abc-123
+    Note over GW: HTTP_REQUEST method=POST endpoint=/api/compras<br/>status=201 correlationId=abc-123
+    GW-->>Cl: 201, X-Correlation-Id abc-123
 ```

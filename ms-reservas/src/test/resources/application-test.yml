@@ -7,3 +7,6 @@ ticketya:
     # conectarse a localhost:8086 (en Windows un puerto cerrado tarda cerca de 1 s en rechazar) o a un ms-fila local.
     # Las pruebas de la fila la activan con ticketya.fila.consultar=true.
     consultar: false
+  seed:
+    # Los tests arman sus propios inventarios y asumen la base vacia.
+    habilitado: false

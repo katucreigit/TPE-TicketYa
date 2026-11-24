@@ -51,3 +51,5 @@ ticketya:
     habilitados: true
     intervalo-ms: 30000
     lote-vencimiento: 100
+  seed:
+    habilitado: true

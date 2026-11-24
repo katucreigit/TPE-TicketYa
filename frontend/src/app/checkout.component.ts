@@ -7,7 +7,7 @@ import { HttpClient } from '@angular/common/http';
 interface Sector  { sectorId: number; nombre: string; tipo: string; precio: number; }
 interface Reserva { reservaId: string; cantidad: number; expiraEn: string; }
 interface Compra  { compraId: string; estado: string; }
-interface Asiento { fila: string; numero: number; estado: string; }
+interface Asiento { fila: number; numero: number; estado: string; }
 
 const API = 'http://localhost:8080/api';
 
@@ -36,7 +36,7 @@ export class CheckoutComponent implements OnInit {
   errorPago    = '';
 
   asientosDisponibles: Asiento[] = [];
-  asientosSeleccionados: { fila: string; numero: number }[] = [];
+  asientosSeleccionados: { fila: number; numero: number }[] = [];
   loadingAsientos = false;
 
   ngOnInit() {
@@ -57,7 +57,7 @@ export class CheckoutComponent implements OnInit {
 
   private cargarAsientos(eventoId: string, sectorId: string) {
     this.loadingAsientos = true;
-    this.http.get<Asiento[]>(`${API}/disponibilidad/eventos/${eventoId}/sectores/${sectorId}/asientos`)
+    this.http.get<Asiento[]>(`${API}/eventos/${eventoId}/sectores/${sectorId}/asientos`)
       .subscribe({
         next:  asientos => {
           this.asientosDisponibles = asientos.filter(a => a.estado === 'LIBRE');
@@ -67,11 +67,11 @@ export class CheckoutComponent implements OnInit {
       });
   }
 
-  filas(): string[] {
-    return [...new Set(this.asientosDisponibles.map(a => a.fila))].sort();
+  filas(): number[] {
+    return [...new Set(this.asientosDisponibles.map(a => a.fila))].sort((a, b) => a - b);
   }
 
-  asientosDeFila(fila: string): Asiento[] {
+  asientosDeFila(fila: number): Asiento[] {
     return this.asientosDisponibles
       .filter(a => a.fila === fila)
       .sort((a, b) => a.numero - b.numero);

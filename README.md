@@ -47,18 +47,21 @@ El detalle de diseño está en [`docs/arquitectura.md`](docs/arquitectura.md).
 
 Interfaz web en Angular 19 con Bootstrap 5. Consume la API del gateway en `localhost:8080`.
 
+La página de inicio muestra directamente el listado de eventos. Si el usuario intenta comprar sin sesión, el guard lo redirige al login.
+
 Páginas:
 
 | Ruta | Descripción |
 |---|---|
-| `/login` | Inicio de sesión |
-| `/register` | Registro con selección de rol (CLIENTE / ORGANIZADOR) |
-| `/events` | Listado de eventos con filtros por nombre y ciudad |
+| `/events` | Listado de eventos con filtros por nombre y ciudad (página de inicio) |
 | `/events/:id` | Detalle del evento, sectores y precios |
 | `/events/:id/checkout` | Reserva y pago (requiere sesión como CLIENTE) |
-| `/my-tickets` | Entradas compradas, QR y solicitud de devolución |
+| `/my-tickets` | Entradas compradas, QR y solicitud de devolución (requiere sesión) |
+| `/my-events` | Eventos del organizador (requiere sesión como ORGANIZADOR) |
+| `/login` | Inicio de sesión |
+| `/register` | Registro de nuevos usuarios (solo rol CLIENTE) |
 
-El JWT se adjunta automáticamente en cada request con un interceptor. Las rutas de checkout y mis entradas tienen un guard que redirige al login si no hay sesión activa.
+El JWT se adjunta automáticamente en cada request con un interceptor. Las rutas de checkout, mis entradas y mis eventos tienen un guard que redirige al login si no hay sesión activa. Los organizadores se crean únicamente desde Postman usando el endpoint `/api/auth/register` con `"rol": "ORGANIZADOR"`.
 
 ### Levantar el frontend
 

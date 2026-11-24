@@ -8,6 +8,7 @@ import com.ticketya.auth.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -32,8 +33,16 @@ public class AuthController {
         return authService.login(request);
     }
 
+    /**
+     * Solo ADMIN (fix-usuarios-solo-admin). El gateway exige JWT en esta ruta y pone X-User-Rol desde el token;
+     * este control es la segunda barrera. Sin el header tambien es 403, para no detallar la validacion.
+     */
     @GetMapping("/usuarios")
-    public List<UsuarioResponse> listarUsuarios() {
+    public List<UsuarioResponse> listarUsuarios(
+            @RequestHeader(value = "X-User-Rol", required = false) String rol) {
+        if (rol == null || !"ADMIN".equals(rol.trim())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Solo un ADMIN puede listar usuarios");
+        }
         return authService.listarUsuarios();
     }
 }
